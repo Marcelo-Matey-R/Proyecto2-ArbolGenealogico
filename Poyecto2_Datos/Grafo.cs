@@ -1,69 +1,53 @@
 using System.Globalization;
+using System.Globalization;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 using Microsoft.VisualBasic;
 using Google.OpenLocationCode;
 using Mapsui.Projections;
 using Mapsui.Extensions;
 
-// Creamos algunas personas con coordenadas (lon, lat)
-// Ejemplo sencillo (puntos cercanos)
-var p1 = new Persona("A", "Ana", 30, DateTime.Parse("1995-01-01"), Lon: -84.0910, Lat: 9.9350); // San José aproximado
-var p2 = new Persona("B", "Bruno", 40, DateTime.Parse("1985-01-01"), Lon: -84.0910, Lat: 9.9350);
-var p3 = new Persona("C", "Carla", 25, DateTime.Parse("1999-01-01"), Lon: -84.0925, Lat: 9.9355);
-var p4 = new Persona("D", "Diego", 50, DateTime.Parse("1975-01-01"), Lon: -84.0850, Lat: 9.9300);
-
-// Asignamos relaciones (usamos GUIDs generados en cada Persona)
-// Para la prueba, haremos: Ana es raíz, Bruno y Carla hijos de Ana, Diego hijo de Bruno
-p2.parentId = p1.id;
-p3.parentId = p1.id;
-p4.parentId = p2.id;
-
-var people = new[] { p1, p2, p3, p4 };
-
-var tm = new TreeManager();
-tm.BuildFromPersons(people, null);
-
-// Mostrar aristas y matriz de distancias
-tm.PrintEdges();
-tm.PrintDistanceMatrix();
-
-// Mostrar pareja con mayor y menor distancia
-Console.WriteLine("\nPareja con máxima distancia:");
-if (tm.personasMaxDistance.Item1 != null)
-    Console.WriteLine($" {tm.personasMaxDistance.Item1.name} <-> {tm.personasMaxDistance.Item2?.name}");
-else
-    Console.WriteLine(" No hay pareja calculada.");
-
-Console.WriteLine("\nPareja con mínima distancia:");
-if (tm.personasMinDistance.Item1 != null)
-    Console.WriteLine($" {tm.personasMinDistance.Item1.name} <-> {tm.personasMinDistance.Item2?.name}");
-else
-    Console.WriteLine(" No hay pareja calculada.");
-
-foreach (var p in people)
+//se necesita recolocar despues, para usar en UI
+public interface IImageService
 {
-    OpenLocationCode ar = new OpenLocationCode((double)p.lon, (double)p.lat);
+    ///Guarda el archivo subido en la carpeta de fotos y devuelve el photoFileName (relativo)
+    string SaveUploadedPhoto(string sourceFilePath);
 
-    Console.WriteLine($"Locaciones de {p} en Plus Code es {ar}");
+    ///Resuelve la ruta absoluta de un photoFileName relativo (o devuelve la absoluta si ya lo es)
+    string ResolvePhotoPath(string photoFileName);
+
+    ///Valida si el nombre/extension es de imagen permitida
+    bool IsValidImageFileName(string fileName);
 }
 
-Console.WriteLine("\nFIN prueba. Presiona cualquier tecla para salir...");
-Console.ReadKey();
 
-
-
-
-class Persona
+public abstract class NotifyBase : INotifyPropertyChanged
 {
-    public Guid id { get; private set; }
-    public string ownId;
-    public string name;
-    public int age;
-    public DateTime birthdate;
-    public Guid? parentId;
-    public string urlImage;
-    public string addresPlusCode;
-    public double? lon;
-    public double? lat;
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        var handler = PropertyChanged;
+        if (handler != null)
+        {
+            handler(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+}
+class Persona : NotifyBase
+{
+    public Persona()
+    {
+        this.id = Guid.NewGuid();
+        this.birthdate = DateTime.MinValue;
+    }
 
     public Persona(string id, string Name, int Age, DateTime BirthDate, string photo = "",
     string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null)
@@ -73,12 +57,89 @@ class Persona
         this.name = Name;
         this.age = Age;
         this.birthdate = BirthDate;
-        this.urlImage = photo ?? "";
+        this.photoFileName = photo ?? "";
         this.addresPlusCode = Addres;
         this.lon = Lon;
         this.lat = Lat;
         this.parentId = ParentId;
     }
+    public Persona(Guid id, string Ownid, string Name, int Age, DateTime BirthDate, string photo = "",
+    string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null)
+    {
+        this.id = id;
+        this.ownId = Ownid;
+        this.name = Name;
+        this.age = Age;
+        this.birthdate = BirthDate;
+        this.photoFileName = photo ?? "";
+        this.addresPlusCode = Addres;
+        this.lon = Lon;
+        this.lat = Lat;
+        this.parentId = ParentId;
+    }
+    [JsonInclude]
+    public Guid id { get; private set; }
+    private string _ownId = "";
+    public string ownId
+    {
+        get => _ownId;
+        set => SetProperty(ref _ownId, value);
+    }
+
+    private string _name;
+    public string name
+    {
+        get => _name;
+        set => SetProperty(ref _name, value);
+    }
+
+    private int _age;
+    public int age
+    {
+        get => _age;
+        set => SetProperty(ref _age, value); 
+    }
+    private DateTime _birthdate;
+    public DateTime birthdate
+    {
+        get => _birthdate;
+        set => SetProperty(ref _birthdate, value); 
+    }
+    private Guid? _parentId;
+    public Guid? parentId
+    {
+        get => _parentId;
+        set => SetProperty(ref _parentId, value);
+    }
+
+    private string _urlImage = "";
+    public string photoFileName
+    {
+        get => _urlImage;
+        set => SetProperty(ref _urlImage, value);
+    }
+
+    private string _addresPlusCode = "";
+    public string addresPlusCode
+    {
+        get => _addresPlusCode;
+        set => SetProperty(ref _addresPlusCode, value);
+    }
+
+    private double? _lon;
+    public double? lon
+    {
+        get => _lon;
+        set => SetProperty(ref _lon, value);
+    }
+
+    private double? _lat;
+    public double? lat
+    {
+        get => _lat;
+        set =>  SetProperty(ref _lat, value); 
+    }
+
     public int CalcAge()
     {
         var today = DateTime.Today;
@@ -103,18 +164,24 @@ class Persona
         return false;
     }
 
+
+
     public override string ToString() => $"{name} (id={ownId})";
 }
 
 class Node
 {
-    public Persona familiar { get; private set; }
+    public Persona familiar { get; }
     public string partner { get; set; }
-    public Node? parent { get; private set; }
-    public List<Node> children { get; } = new List<Node>();
+
+    private Node? _parent;
+    public Node? parent => _parent;
+    private readonly List<Node> _children = new List<Node>();
+    public IReadOnlyList<Node> children => _children.AsReadOnly();
 
     public Dictionary<Node, double> distances = new Dictionary<Node, double>();
     public List<Edge> edges = new List<Edge>();
+
     public Node(Persona fam, string part = "")
     {
         this.familiar = fam ?? throw new ArgumentNullException(nameof(fam));
@@ -125,30 +192,32 @@ class Node
     {
         if (child == null) throw new ArgumentNullException(nameof(child));
 
-        if (!children.Contains(child))
+        if (!_children.Contains(child))
         {
             child.DetachFromParent();
-            child.parent = this;
-            children.Add(child);
+            child._parent = this;
+            _children.Add(child);
+            child.familiar.parentId = this.familiar.id;
         }
     }
     public void DetachFromParent()
     {
-        if (parent != null)
+        if (_parent != null)
         {
-            parent.children.Remove(this);
-            parent = null;
+            _parent._children.Remove(this);
+            _parent = null;
+            this.familiar.parentId = null;
         }
     }
     public int GetLevel()
     {
         int lvl = 0;
-        var curr = this.parent;
+        var curr = this._parent;
 
         while (curr != null)
         {
             lvl++;
-            curr = curr.parent;
+            curr = curr._parent;
         }
         return lvl;
     }
@@ -166,24 +235,26 @@ class Node
 
 class Edge
 {
-    public Node fam1;
-    public Node fam2;
+    public Node fam1 { get; }
+    public Node fam2 { get; }
 
-    public double weight;
+    public double weight { get; }
 
     public Edge(Node per1, Node per2, double w)
     {
-        this.fam1 = per1;
-        this.fam2 = per2;
+        this.fam1 = per1 ?? throw new ArgumentNullException(nameof(per1));
+        this.fam2 = per2 ?? throw new ArgumentNullException(nameof(per2));
 
         this.weight = w;
     }
-    public override string ToString() => $"{fam1.familiar.name} -> {fam2.familiar.name}: {weight:F0}"; 
+    public bool IsValid() => !double.IsNaN(weight) && !double.IsInfinity(weight);
+    public override string ToString() => $"{fam1.familiar.name} -> {fam2.familiar.name}: {weight:F6}"; 
 
 }
 
 class CalcDistance
 {
+    //convierte plus code a Lon y Lat
     public bool TryConvertPlusCode(string plus, out double Lon, out double Lat)
     {
         Lon = Lat = 0;
@@ -200,7 +271,7 @@ class CalcDistance
             return false;
         }
     }
-
+    //devuelve la distancia en km, ussando la conversion de SphericalMarcator
     public double Distance(double? lon1, double? lat1, double? lon2, double? lat2)
     {
         if (!lon1.HasValue || !lon2.HasValue || !lat1.HasValue || !lat2.HasValue)
@@ -215,7 +286,13 @@ class CalcDistance
 
         var dis = Math.Sqrt(dx * dx + dy * dy);
 
-        return dis;
+        return (double)dis / 1000;
+    }
+    
+    public bool TryDistanceIn(double? lon1, double? lat1, double? lon2, double? lat2, out double kiloMeters)
+    {
+        kiloMeters = Distance(lon1, lat1, lon2, lat2);
+        return !(double.IsNaN(kiloMeters) || double.IsInfinity(kiloMeters));
     }
 }
 
@@ -223,24 +300,65 @@ class CalcDistance
 
 class TreeManager
 {
+    //token de sincronizacion
+    private readonly object _sync = new object();
+
+    //estructura de datos internas
     private readonly Dictionary<Guid, Node> _lookup = new Dictionary<Guid, Node>();
     private readonly List<Node> _roots = new List<Node>();
     private CalcDistance calcDistance = new CalcDistance();
 
-    public IReadOnlyList<Node> Roots => _roots.AsReadOnly();
+    //acciones para la UI
+    public event Action<Node>? nodeAdded;
+
+    //el evento se define por hijo/nodo acutal, antiguo padre, nuevo padre
+    public event Action<Guid, Guid?, Guid?>? changeParent;
+    public event Action? graphChanged;
+
+    //resultados
     public (Persona?, Persona?) personasMaxDistance = (null, null);
-    public (Persona?, Persona?) personasMinDistance  = (null, null);
-
-    public Node? FindNodeById(Guid id) => _lookup.TryGetValue(id, out var n) ? n : null;
-
-    public void BuildFromPersons(IEnumerable<Persona> people, Func<Persona, Guid?> parentSelector = null)
+    public (Persona?, Persona?) personasMinDistance = (null, null);
+    
+    public IReadOnlyCollection<Node> Roots
     {
-        _lookup.Clear();
-        _roots.Clear();
+        get
+        {
+            lock(_sync){ return _roots.ToList().AsReadOnly(); }
+        }
+    }
+
+    public Node? FindNodeById(Guid id)
+    {
+        lock(_sync){return _lookup.TryGetValue(id, out var n) ? n : null;}
+    }
+
+    public IReadOnlyList<Node> GetAllowedParents(Guid nodeId)
+    {
+        lock (_sync)
+        {
+            if (!_lookup.TryGetValue(nodeId, out var node)) return new List<Node>().AsReadOnly();
+
+            // marcar descendientes
+            var banned = new HashSet<Node>();
+            node.TransverseDFS(n => banned.Add(n));
+
+            // todos los nodos excepto los banneds
+            var list = _lookup.Values.Where(n => !banned.Contains(n)).ToList();
+            return list.AsReadOnly();
+        }
+    }
+
+    public void BuildFromPersons(IEnumerable<Persona> people, Func<Persona, Guid?>? parentSelector = null)
+    {
+        if (people == null) throw new ArgumentNullException(nameof(people));
+
+        var tempLookup = new Dictionary<Guid, Node>();
+        var tempRoots = new List<Node>();
+
 
         // Crear nodo por persona
         foreach (var p in people)
-            _lookup[p.id] = new Node(p);
+            tempLookup[p.id] = new Node(p);
 
         // Enlazar
         foreach (var p in people)
@@ -250,17 +368,26 @@ class TreeManager
 
             if (parentId == null)
             {
-                _roots.Add(_lookup[id]);
+                tempRoots.Add(tempLookup[id]);
             }
-            else if (_lookup.ContainsKey(parentId.Value))
+            else if (tempLookup.ContainsKey(parentId.Value))
             {
-                var parentNode = _lookup[parentId.Value];
-                parentNode.AddChild(_lookup[id]);
+                var parentNode = tempLookup[parentId.Value];
+                parentNode.AddChild(tempLookup[id]);
             }
             else
             {
-                _roots.Add(_lookup[id]);
+                tempRoots.Add(tempLookup[id]);
             }
+        }
+
+        lock (_sync)
+        {
+            _lookup.Clear();
+            _roots.Clear();
+
+            foreach (var kv in tempLookup) _lookup[kv.Key] = kv.Value;
+            _roots.AddRange(tempRoots);
         }
 
         UpdateGraphAndDistances();
@@ -269,40 +396,124 @@ class TreeManager
     public Node AddPerson(Persona p, Guid? parentId = null)
     {
         if (p == null) throw new ArgumentNullException(nameof(p));
-        if (_lookup.ContainsKey(p.id)) throw new InvalidOperationException($"Ya existe una persona con id={p.id}");
 
-        var node = new Node(p);
-        _lookup[p.id] = node;
+        Node created;
+        bool addAsRoot = false;
 
-        if (parentId == null)
+        lock (_sync)
         {
-            _roots.Add(node);
-        }
-        else
-        {
-            if (!_lookup.TryGetValue(parentId.Value, out var parentNode))
+            if (_lookup.ContainsKey(p.id)) throw new InvalidOperationException($"Ya existe una persona con id={p.id}");
+
+            var node = new Node(p);
+            _lookup[p.id] = node;
+
+            if (parentId == null)
             {
                 _roots.Add(node);
+                addAsRoot = true;
             }
+
             else
             {
-                if (IsAncestor(descendant: parentNode, ancestorCandidate: node))
-                    throw new InvalidOperationException("Operación inválida: el nuevo padre sería descendiente del nodo (crearía un ciclo).");
+                if (!_lookup.TryGetValue(parentId.Value, out var parentNode))
+                {
+                    _roots.Add(node);
+                    addAsRoot = true;
+                }
+                else
+                {
+                    if (IsAncestor(descendant: parentNode, ancestorCandidate: node))
+                        throw new InvalidOperationException("Operación inválida: el nuevo padre sería descendiente del nodo (crearía un ciclo).");
 
-                parentNode.AddChild(node);
+                    parentNode.AddChild(node);
+                }
             }
+
+            created = node;
         }
+        nodeAdded?.Invoke(created);
 
         UpdateGraphAndDistances();
 
-        return node;
+        return created;
+    }
+    public void ReassignParent(Guid childId, Guid? newParentId)
+    {
+        Node childNode;
+        Node? newParentNode = null;
+        Guid? oldParentId = null;
+
+        lock (_sync)
+        {
+            if (!_lookup.TryGetValue(childId, out childNode))
+                throw new ArgumentException($"Nodo hijo con id {childId} no existe.", nameof(childId));
+
+            if (newParentId.HasValue)
+            {
+                if (!_lookup.TryGetValue(newParentId.Value, out newParentNode))
+                    throw new ArgumentException($"Nuevo padre con id {newParentId.Value} no existe.", nameof(newParentId));
+            }
+
+            // self-parent check
+            if (newParentNode != null && ReferenceEquals(newParentNode, childNode))
+                throw new InvalidOperationException("Un nodo no puede ser padre de sí mismo.");
+
+            // cycle check: subimos desde newParentNode y vemos si llegamos a childNode
+            if (newParentNode != null)
+            {
+                var cur = newParentNode;
+                while (cur != null)
+                {
+                    if (ReferenceEquals(cur, childNode))
+                        throw new InvalidOperationException("Operación inválida: el nuevo padre sería descendiente del nodo (crearía un ciclo).");
+                    cur = cur.parent;
+                }
+            }
+
+            // guardar oldParentId para notificación posterior
+            oldParentId = childNode.familiar.parentId;
+
+            // detach del padre actual (si lo tiene) de forma segura
+            childNode.DetachFromParent();
+
+            // si newParentNode == null -> poner en roots; si no -> AddChild
+            if (newParentNode == null)
+            {
+                // ya está detachado; añadir a roots si no está
+                if (!_roots.Contains(childNode)) _roots.Add(childNode);
+                childNode.familiar.parentId = null;
+            }
+            else
+            {
+                // si el child estaba como root, quitar la entrada de roots antes de añadirlo
+                _roots.Remove(childNode);
+                newParentNode.AddChild(childNode); // esto actualiza childNode._parent y childNode.familiar.parentId
+            }
+        } // fin lock
+
+        // notificar fuera del lock
+        changeParent?.Invoke(childId, oldParentId, newParentId);
+
+        // recalcular grafo fuera del lock
+        UpdateGraphAndDistances();
     }
 
-    public void GetEdgesWithWeights(CalcDistance calc)
-    {
-        foreach (var node in _lookup.Values) node.edges.Clear();
 
-        foreach (var root in _roots)
+
+    public void GetEdgesWithWeights()
+    {
+        List<Node> tempNodes;
+        List<Node> tempRoots;
+
+        lock (_sync)
+        {
+            tempNodes = _lookup.Values.ToList();
+            tempRoots = _roots.ToList();
+        }
+    
+        foreach (var node in tempNodes) node.edges.Clear();
+
+        foreach (var root in tempRoots)
         {
             root.TransverseDFS(n =>
             {
@@ -310,7 +521,7 @@ class TreeManager
                 {
                     var a = n;
                     var b = child;
-                    double w = calc.Distance(a.familiar.lon, a.familiar.lat, b.familiar.lon, b.familiar.lat); // devuelve NaN si falta coord
+                    double w = calcDistance.Distance(a.familiar.lon, a.familiar.lat, b.familiar.lon, b.familiar.lat); // devuelve NaN si falta coord
                     var e1 = new Edge(a, b, w);
                     var e2 = new Edge(b, a, w);
                     a.edges.Add(e1);
@@ -331,9 +542,12 @@ class TreeManager
         return false;
     }
 
-    public Dictionary<Node,double> Dijkstra(Node source)
+    public Dictionary<Node,double> Dijkstra(Node? source)
     {
         var dist = _lookup.Values.ToDictionary(x => x, x => double.PositiveInfinity);
+
+        if (source == null) return dist;
+
         var visited = new HashSet<Node>();
         dist[source] = 0;
 
@@ -365,17 +579,24 @@ class TreeManager
 
     public void ComputeAllDijkstras()
     {
-        foreach (var n in _lookup.Values)
+        List<Node> nodes;
+        lock (_sync)
+        {
+            nodes = _lookup.Values.ToList();
+        }
+        foreach (var n in nodes)
             n.distances = Dijkstra(n);
     }
 
     private void UpdateGraphAndDistances()
     {
-        GetEdgesWithWeights(calcDistance);
+        GetEdgesWithWeights();
 
         ComputeAllDijkstras();
 
         ComputeMinMaxPairs();
+
+        graphChanged?.Invoke();
     }
     public void ComputeMinMaxPairs()
     {
@@ -385,7 +606,10 @@ class TreeManager
         double? max = null;
         double? min = null;
 
-        foreach (var src in _lookup.Values)
+        List<Node> nodes;
+        lock (_sync) nodes = _lookup.Values.ToList();
+
+        foreach (var src in nodes)
         {
             foreach (var kv in src.distances)
             {
@@ -393,6 +617,7 @@ class TreeManager
                 var d = kv.Value;
 
                 if (double.IsInfinity(d) || double.IsNaN(d)) continue;
+
                 if (src == target || d == 0) continue;
 
                 if (!max.HasValue || d > max.Value)
@@ -436,5 +661,54 @@ class TreeManager
                 Console.WriteLine($"   -> {target.familiar.name}: {dstr}");
             }
         }
+    }
+    public IEnumerable<PersonDto> ExportToDto()
+    {
+        lock (_sync)
+        {
+            return _lookup.Values.Select(n => new PersonDto
+            {
+                Id = n.familiar.id,
+                Nombre = n.familiar.name,
+                ParentId = n.familiar.parentId,
+                Latitude = n.familiar.lat,
+                Longitude = n.familiar.lon,
+                PhotoFileName = n.familiar.photoFileName,
+                ExternalId = n.familiar.ownId
+            }).ToList();
+        }
+    }
+
+    public void ImportFromDto(IEnumerable<PersonDto> dtos)
+    {
+        if (dtos == null) throw new ArgumentNullException(nameof(dtos));
+        var list = dtos.ToList();
+
+        var persons = list.Select(d => new Persona(
+            d.Id,
+            d.ExternalId ?? string.Empty,
+            d.Nombre ?? string.Empty,
+            0,
+            DateTime.MinValue,
+            photo: d.PhotoFileName ?? string.Empty,
+            Addres: "",
+            Lon: d.Longitude,
+            Lat: d.Latitude,
+            ParentId: d.ParentId
+        )).ToList();
+
+        BuildFromPersons(persons, null);
+    }
+    public class PersonDto
+    {
+        public Guid Id { get; set; }
+        public string? Nombre { get; set; }
+        public Guid? ParentId { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+        public string? PhotoFileName { get; set; }
+        public string? PhotoBase64 { get; set; }
+        public string? UrlImage { get; set; }
+        public string? ExternalId { get; set; }
     }
 }
