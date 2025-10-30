@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Globalization;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
@@ -7,6 +6,7 @@ using Microsoft.VisualBasic;
 using Google.OpenLocationCode;
 using Mapsui.Projections;
 using Mapsui.Extensions;
+using System.Diagnostics.CodeAnalysis;
 
 //se necesita recolocar despues, para usar en UI
 public interface IImageService
@@ -50,7 +50,7 @@ class Persona : NotifyBase
     }
 
     public Persona(string id, string Name, int Age, DateTime BirthDate, string photo = "",
-    string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null)
+    string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
     {
         this.id = Guid.NewGuid();
         this.ownId = id;
@@ -62,12 +62,13 @@ class Persona : NotifyBase
         this.lon = Lon;
         this.lat = Lat;
         this.parentId = ParentId;
+        this.partnerId = PartnerId;
+        this.excludeFromDistance = Exclude;
     }
-    public Persona(Guid id, string Ownid, string Name, int Age, DateTime BirthDate, string photo = "",
-    string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null)
+    public Persona(Guid id, string Name, int Age, DateTime BirthDate, string photo = "",
+    string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
     {
         this.id = id;
-        this.ownId = Ownid;
         this.name = Name;
         this.age = Age;
         this.birthdate = BirthDate;
@@ -76,6 +77,8 @@ class Persona : NotifyBase
         this.lon = Lon;
         this.lat = Lat;
         this.parentId = ParentId;
+        this.partnerId = PartnerId;
+        this.excludeFromDistance = Exclude;
     }
     [JsonInclude]
     public Guid id { get; private set; }
@@ -111,7 +114,18 @@ class Persona : NotifyBase
         get => _parentId;
         set => SetProperty(ref _parentId, value);
     }
-
+    private Guid? _partnerId;
+    public Guid? partnerId
+    {
+        get => _partnerId;
+        set => SetProperty(ref _partnerId, value);
+    }
+    private bool _excludeFromDistance;
+    public bool excludeFromDistance
+    {
+        get => _excludeFromDistance;
+        set => SetProperty(ref _excludeFromDistance, value);
+    }
     private string _urlImage = "";
     public string photoFileName
     {
@@ -172,7 +186,6 @@ class Persona : NotifyBase
 class Node
 {
     public Persona familiar { get; }
-    public string partner { get; set; }
 
     private Node? _parent;
     public Node? parent => _parent;
@@ -185,7 +198,6 @@ class Node
     public Node(Persona fam, string part = "")
     {
         this.familiar = fam ?? throw new ArgumentNullException(nameof(fam));
-        this.partner = part ?? "";
     }
 
     public void AddChild(Node child)
@@ -208,6 +220,41 @@ class Node
             _parent = null;
             this.familiar.parentId = null;
         }
+    }
+        public void DetachFromPartner(Node? partnerNode = null)
+    {
+        // Limpiar el partnerId local
+        if (familiar.partnerId.HasValue)
+        {
+            // si se pasó partnerNode y coincide, limpiar partnerNode también
+            if (partnerNode != null && partnerNode.familiar.partnerId.HasValue &&
+                partnerNode.familiar.partnerId.Value == this.familiar.id &&
+                this.familiar.partnerId.Value == partnerNode.familiar.id)
+            {
+                // limpiar ambos
+                partnerNode.familiar.partnerId = null;
+                this.familiar.partnerId = null;
+                return;
+            }
+
+            // si no se pasó partnerNode, o no coincide, sólo limpiar local
+            this.familiar.partnerId = null;
+        }
+        else
+        {
+            // si no había partner local y se pasó partnerNode, asegurarse de limpiar el otro lado si apunta aquí
+            if (partnerNode != null && partnerNode.familiar.partnerId.HasValue &&
+                partnerNode.familiar.partnerId.Value == this.familiar.id)
+            {
+                partnerNode.familiar.partnerId = null;
+            }
+        }
+    }
+    public void AttachPartner(Node partnerNode)
+    {
+        if (partnerNode == null) throw new ArgumentNullException(nameof(partnerNode));
+        this.familiar.partnerId = partnerNode.familiar.id;
+        partnerNode.familiar.partnerId = this.familiar.id;
     }
     public int GetLevel()
     {
@@ -314,6 +361,7 @@ class TreeManager
     //el evento se define por hijo/nodo acutal, antiguo padre, nuevo padre
     public event Action<Guid, Guid?, Guid?>? changeParent;
     public event Action? graphChanged;
+    public event Action<Guid, Guid?, Guid?>? changePartner;
 
     //resultados
     public (Persona?, Persona?) personasMaxDistance = (null, null);
@@ -437,6 +485,94 @@ class TreeManager
 
         return created;
     }
+    public void SetPartner(Guid idA, Guid? idB)
+    {
+        bool changed = false;
+        Guid? oldPartnerId = null;
+        Guid? newPartnerId = null;
+
+        lock (_sync)
+        {
+            if (!_lookup.TryGetValue(idA, out var nodeA))
+                throw new ArgumentException("Persona A no existe", nameof(idA));
+            
+            oldPartnerId = nodeA.familiar.partnerId;
+            // Caso: desasociar A (idB == null)
+            if (!idB.HasValue)
+            {
+                if (oldPartnerId.HasValue)
+                {
+                    // si hay pareja previa, desasociar mutuamente (si existe en lookup)
+                    if (_lookup.TryGetValue(oldPartnerId.Value, out var oldPartnerNode))
+                        nodeA.DetachFromPartner(oldPartnerNode);
+                    else
+                        nodeA.DetachFromPartner(null);
+
+                    changed = true;
+                    newPartnerId = nodeA.familiar.partnerId; // debería ser null
+                }
+                // si no tenía pareja -> no hay cambio
+                return;
+            }
+
+            // Caso: asociar A con B -> validamos B UNA vez
+            if (!_lookup.TryGetValue(idB.Value, out var nodeB))
+                throw new ArgumentException("Persona B no existe", nameof(idB));
+
+            if (ReferenceEquals(nodeA, nodeB))
+                throw new InvalidOperationException("Una persona no puede ser pareja de sí misma.");
+            
+            if (nodeA.familiar.partnerId.HasValue
+                && nodeA.familiar.partnerId.Value == nodeB.familiar.id
+                && nodeB.familiar.partnerId.HasValue
+                && nodeB.familiar.partnerId.Value == nodeA.familiar.id)
+            {
+                // nada que hacer
+                return;
+            }
+
+            // Limpiar parejas previas de A (si las tiene)
+            if (nodeA.familiar.partnerId.HasValue)
+            {
+                if (_lookup.TryGetValue(nodeA.familiar.partnerId.Value, out var aOld))
+                    nodeA.DetachFromPartner(aOld);
+                else
+                    nodeA.DetachFromPartner(null);
+            }
+
+            // Limpiar parejas previas de B (si las tiene)
+            if (nodeB.familiar.partnerId.HasValue)
+            {
+                if (_lookup.TryGetValue(nodeB.familiar.partnerId.Value, out var bOld))
+                    nodeB.DetachFromPartner(bOld);
+
+                else
+                    nodeB.DetachFromPartner(null);
+            }
+
+            // Atar A <-> B (helper en Node)
+            nodeA.AttachPartner(nodeB);
+            changed = true;
+            newPartnerId = nodeA.familiar.partnerId;
+        } // fin lock
+
+        if (changed)
+        {
+            UpdateGraphAndDistances();
+            changePartner?.Invoke(idA, oldPartnerId, newPartnerId);
+        }
+    }
+    public Node? GetPartnerNode(Node n)
+    {
+        if (n?.familiar?.partnerId == null) return null;
+        var pid = n.familiar.partnerId.Value;
+        lock(_sync)
+        {
+            return _lookup.TryGetValue(pid, out var partnerNode) ? partnerNode : null;
+        }
+    }
+
+
     public void ReassignParent(Guid childId, Guid? newParentId)
     {
         Node childNode;
@@ -519,6 +655,8 @@ class TreeManager
             {
                 foreach (var child in n.children)
                 {
+                    if (n.familiar.excludeFromDistance || child.familiar.excludeFromDistance) continue;
+                    if (n.familiar.partnerId.HasValue && n.familiar.partnerId == child.familiar.id) continue;
                     var a = n;
                     var b = child;
                     double w = calcDistance.Distance(a.familiar.lon, a.familiar.lat, b.familiar.lon, b.familiar.lat); // devuelve NaN si falta coord
@@ -674,7 +812,6 @@ class TreeManager
                 Latitude = n.familiar.lat,
                 Longitude = n.familiar.lon,
                 PhotoFileName = n.familiar.photoFileName,
-                ExternalId = n.familiar.ownId
             }).ToList();
         }
     }
@@ -686,7 +823,6 @@ class TreeManager
 
         var persons = list.Select(d => new Persona(
             d.Id,
-            d.ExternalId ?? string.Empty,
             d.Nombre ?? string.Empty,
             0,
             DateTime.MinValue,
@@ -694,7 +830,9 @@ class TreeManager
             Addres: "",
             Lon: d.Longitude,
             Lat: d.Latitude,
-            ParentId: d.ParentId
+            ParentId: d.ParentId,
+            PartnerId: d.PartnerId,
+            Exclude: d.ExcludeFromDistance
         )).ToList();
 
         BuildFromPersons(persons, null);
@@ -707,7 +845,9 @@ class TreeManager
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
         public string? PhotoFileName { get; set; }
-        public string? UrlImage { get; set; }
+        public Guid? PartnerId { get; set; }
+        public bool ExcludeFromDistance { get; set; }
     }
-}
 
+
+}
