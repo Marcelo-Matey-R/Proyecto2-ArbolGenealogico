@@ -707,8 +707,7 @@ class TreeManager
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
         public string? PhotoFileName { get; set; }
-        public string? PhotoBase64 { get; set; }
         public string? UrlImage { get; set; }
-        public string? ExternalId { get; set; }
     }
 }
+
