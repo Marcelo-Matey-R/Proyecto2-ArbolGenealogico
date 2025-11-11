@@ -13,7 +13,7 @@ namespace ArbolGenealogico.Domain.Models
         }
 
         public Persona(string id, string Name, int Age, DateTime BirthDate, string photo = "",
-        string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
+        string Adress = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
         {
             this.id = Guid.NewGuid();
             this.ownId = id;
@@ -21,7 +21,7 @@ namespace ArbolGenealogico.Domain.Models
             this.age = Age;
             this.birthdate = BirthDate;
             this.photoFileName = photo ?? "";
-            this.addresPlusCode = Addres;
+            this.addresPlusCode = Adress;
             this.lon = Lon;
             this.lat = Lat;
             this.parentId = ParentId;
@@ -29,14 +29,14 @@ namespace ArbolGenealogico.Domain.Models
             this.excludeFromDistance = Exclude;
         }
         public Persona(Guid id, string Name, int Age, DateTime BirthDate, string photo = "",
-        string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
+        string Adress = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
         {
             this.id = id;
             this.name = Name;
             this.age = Age;
             this.birthdate = BirthDate;
             this.photoFileName = photo ?? "";
-            this.addresPlusCode = Addres;
+            this.addresPlusCode = Adress;
             this.lon = Lon;
             this.lat = Lat;
             this.parentId = ParentId;
@@ -96,11 +96,11 @@ namespace ArbolGenealogico.Domain.Models
             set => SetProperty(ref _urlImage, value);
         }
 
-        private string _addresPlusCode = "";
+        private string _addressPlusCode = "";
         public string addresPlusCode
         {
-            get => _addresPlusCode;
-            set => SetProperty(ref _addresPlusCode, value);
+            get => _addressPlusCode;
+            set => SetProperty(ref _addressPlusCode, value);
         }
 
         private double? _lon;
@@ -145,5 +145,6 @@ namespace ArbolGenealogico.Domain.Models
 
         public override string ToString() => $"{name} (id={ownId})";
     }
+
 
 }
