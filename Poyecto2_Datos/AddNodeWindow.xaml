@@ -1,0 +1,86 @@
+<Window x:Class="Poyecto2_Datos.AddNodeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Añadir / Modificar Persona" Height="520" Width="900" WindowStartupLocation="CenterOwner" WindowState="Maximized">
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="420"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!--Formulario de informacion para aniadir al nodo-->
+        <Border Grid.Column="0" Padding="10" BorderBrush="#EEE" BorderThickness="1" CornerRadius="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Añadir nuevo miembro" FontSize="18" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <TextBlock Text="Nombre completo" />
+                    <TextBox x:Name="TxtNombre" Margin="0,4,0,8"/>
+                    <TextBlock Text="Cédula / ID" />
+                    <TextBox x:Name="TxtCedula" Margin="0,4,0,8"/>
+                    <TextBlock Text="Fecha de nacimiento" />
+                    <DatePicker x:Name="DpFechaNacimiento" Margin="0,4,0,8"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                        <CheckBox x:Name="ChkVivo" IsChecked="True" VerticalAlignment="Center"/>
+                        <TextBlock Text="Vivo" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    </StackPanel>
+
+                    <TextBlock Text="Coordenadas (Plus Code)" />
+                    <DockPanel Margin="0,4,0,8">
+                        <TextBox x:Name="TxtPlusCode" DockPanel.Dock="Left" Width="200"/>
+                        <Button x:Name="BtnConvertPlusCode" Content="Convertir" Margin="8,0,0,0" Click="BtnConvertPlusCode_Click"/>
+                    </DockPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                        <TextBlock Text="Lat:" Width="40"/>
+                        <TextBlock x:Name="LblLat" Text="-" />
+                        <TextBlock Text="    Lon:" Margin="12,0,0,0"/>
+                        <TextBlock x:Name="LblLon" Text="-" />
+                    </StackPanel>
+
+                    <TextBlock Text="Notas / Descripción (opcional)" />
+                    <TextBox x:Name="TxtNotes" Height="80" AcceptsReturn="True" Margin="0,4,0,8"/>
+
+                    <TextBlock Text="Relaciones: seleccionar padre/madre si existe en el árbol" FontStyle="Italic" Margin="0,6,0,2"/>
+                    <ComboBox x:Name="CmbParent" Margin="0,4,0,8" IsEditable="False" SelectedIndex="0" DisplayMemberPath="familiar.name"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,4,0,8">
+                        <Border BorderBrush="#CCC" BorderThickness="1" Width="120" Height="120" CornerRadius="6" Margin="0,0,12,0">
+                            <Image x:Name="ImgPhoto" Stretch="UniformToFill"/>
+                        </Border>
+                        <StackPanel>
+                            <Button x:Name="BtnLoadPhoto" Content="Cargar foto" Width="120" Click="BtnLoadPhoto_Click"/>
+                            <Button x:Name="BtnClearPhoto" Content="Quitar foto" Width="120" Margin="0,8,0,0" Click="BtnClearPhoto_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Pareja:" VerticalAlignment="Center" Width="80"/>
+                        <ComboBox x:Name="CmbPartnerSelect"
+              Width="300"
+              HorizontalAlignment="Left"
+              DisplayMemberPath="familiar.name"
+              SelectedValuePath="familiar.id"
+              IsEditable="False"/>
+                    </StackPanel>
+
+                    <!--Botones de volver al menu/guardar nodo/cancelar-->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                        <Button Content="Regresar" Width="120" Margin="6,0" Click="BtnBack_Click" />
+                        <Button Content="Cancelar" Width="120" Margin="6,0" Click="BtnCancel_Click"/>
+                        <Button Content="Guardar" Width="120" Margin="6,0" Click="BtnSave_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+        <!--Canvas-->
+        <Border Grid.Column="2" Padding="6" BorderBrush="#EEE" BorderThickness="1" CornerRadius="6">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <Canvas x:Name="TreeCanvas" Background="White" MinHeight="400" MinWidth="600"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Window>
