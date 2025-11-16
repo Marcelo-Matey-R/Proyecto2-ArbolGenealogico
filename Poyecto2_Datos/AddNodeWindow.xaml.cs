@@ -10,7 +10,7 @@ using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 
-namespace ProyectoDatos22
+namespace Poyecto2_Datos
 {
     public partial class AddNodeWindow : Window, IDisposable
     {
