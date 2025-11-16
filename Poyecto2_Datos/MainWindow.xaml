@@ -1,0 +1,15 @@
+<Window x:Class="Poyecto2_Datos.MainWindow"
+xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+Title="Menú Principal" Height="320" Width="420" WindowStartupLocation="CenterScreen" WindowState="Maximized">
+    <Grid>
+        <Border CornerRadius="10" Padding="16" Margin="20" BorderBrush="#DDD" BorderThickness="1">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="300">
+                <TextBlock Text="Proyecto: Árbol Genealógico" FontSize="18" FontWeight="Bold" TextAlignment="Center"  Margin="0,0,0,12"/>
+                <Button x:Name="BtnAddNode" Content="Añadir nodos" Height="40" Margin="0,0,0,8" Click="BtnAddNode_Click"/>
+                <Button x:Name="BtnMap" Content="Mapa" Height="40" Margin="0,0,0,8" Click="BtnMap_Click"/>
+                <Button x:Name="BtnStats" Content="Estadísticas" Height="40" Click="BtnStats_Click"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
