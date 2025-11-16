@@ -10,7 +10,7 @@ using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 
-namespace Poyecto2_Datos
+namespace ProyectoDatos22
 {
     public partial class AddNodeWindow : Window, IDisposable
     {
@@ -32,13 +32,13 @@ namespace Poyecto2_Datos
             _treeManager = ResolveTreeManager();
             SubscribeToTreeManager();
 
+            // constructor
             LoadParentsCombo();
             UpdateCanvasLayout();
-            LoadPartnersCombo();
+            LoadPartnersCombo(); // sin exclude por defecto
         }
 
         #region Resolve TreeManager and subscription
-        // busca si ya existe una instancia de treemanager y se suscribe a los cambios del arbol
         private TreeManager? ResolveTreeManager()
         {
             if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
@@ -116,7 +116,6 @@ namespace Poyecto2_Datos
         #endregion
 
         #region UI helpers (combo population etc.)
-        // carga el combobox de la interfaz con los nodos excepto el nodo seleccionado
         private void LoadParentsCombo()
         {
             try
@@ -143,7 +142,6 @@ namespace Poyecto2_Datos
             {
             }
         }
-        // carga el combobox de pareja con todos los nodos excepto el del nodo seleccionado
         private void LoadPartnersCombo(Guid? excludeId = null)
         {
             try
@@ -207,10 +205,34 @@ namespace Poyecto2_Datos
             CmbParent.Items.Add(node);
             foreach (var c in node.children) AddNodeAndChildrenToCombo(c);
         }
+
+        // Permitir sólo dígitos durante la escritura
+        private void TxtAge_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            // permitir sólo dígitos
+            e.Handled = !e.Text.All(char.IsDigit);
+        }
+
+        // Evitar pegar texto no numérico
+        private void TxtAge_Pasting(object sender, DataObjectPastingEventArgs e)
+        {
+            if (e.DataObject.GetDataPresent(DataFormats.Text))
+            {
+                var text = e.DataObject.GetData(DataFormats.Text) as string ?? "";
+                if (!text.All(char.IsDigit))
+                {
+                    e.CancelCommand();
+                }
+            }
+            else
+            {
+                e.CancelCommand();
+            }
+        }
+
         #endregion
 
         #region Photo and pluscode controls
-        //abre una ventana de archivos para buscar el filepath de una foto
         private void BtnLoadPhoto_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new OpenFileDialog();
@@ -232,7 +254,7 @@ namespace Poyecto2_Datos
             _photoFilePath = null;
             ImgPhoto.Source = null;
         }
-        // convierte el pluscode a lat y lon utilizando la clase CalcDistance
+
         private void BtnConvertPlusCode_Click(object sender, RoutedEventArgs e)
         {
             var code = (TxtPlusCode.Text ?? "").Trim();
@@ -256,7 +278,7 @@ namespace Poyecto2_Datos
         }
         #endregion
 
-        #region Save / Cancel
+        #region Save / Cancel (ahora soporta edición)
         private void BtnCancel_Click(object sender, RoutedEventArgs e)
         {
             // Si estamos en edición, cancelar edición sino cerrar ventana
@@ -272,7 +294,7 @@ namespace Poyecto2_Datos
                 this.Close();
             }
         }
-        // este se encarga de aniadir el nodo al arbol
+
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
             var nombre = TxtNombre.Text?.Trim() ?? "";
@@ -280,51 +302,62 @@ namespace Poyecto2_Datos
             var birth = DpFechaNacimiento.SelectedDate ?? DateTime.MinValue;
             var notes = TxtNotes.Text?.Trim() ?? "";
             var plus = TxtPlusCode.Text?.Trim() ?? "";
-            // --- VALIDACIONES ---
+
+            // VALIDACIONES: nombre no puede contener dígitos; ownId solo dígitos
             if (string.IsNullOrWhiteSpace(nombre) || nombre.Any(char.IsDigit))
             {
                 MessageBox.Show("Nombre inválido. El campo nombre no puede contener números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // ownId debe ser sólo dígitos (ajusta si deseas permitir letras)
             if (string.IsNullOrWhiteSpace(ownId) || !ownId.All(char.IsDigit))
             {
                 MessageBox.Show("OwnId inválido. El campo Cédula debe contener sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrEmpty(nombre))
-            {
-                MessageBox.Show("Nombre requerido.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (string.IsNullOrEmpty(ownId))
-            {
-                MessageBox.Show("Cédula / ownId requerido.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
+            // Determinar edad: preferir valor ingresado en TxtAge si existe, si no calcular desde birth
             int age = 0;
-            if (birth != DateTime.MinValue)
+            var ageText = (TxtAge?.Text ?? "").Trim();
+            if (!string.IsNullOrEmpty(ageText))
             {
-                var today = DateTime.Today;
-                age = today.Year - birth.Year;
-                if (birth.Date > today.AddYears(-age)) age--;
-                if (age < 0) age = 0;
+                if (!int.TryParse(ageText, out age))
+                {
+                    MessageBox.Show("Edad inválida. Use sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                if (age < 0 || age > 130)
+                {
+                    MessageBox.Show("Edad fuera de rango (0-130).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            else
+            {
+                if (birth != DateTime.MinValue)
+                {
+                    var today = DateTime.Today;
+                    age = today.Year - birth.Year;
+                    if (birth.Date > today.AddYears(-age)) age--;
+                    if (age < 0) age = 0;
+                }
+                else
+                {
+                    age = 0;
+                }
             }
 
             try
             {
                 if (_editingNode == null)
                 {
-                    // MODO AÑADIR
+                    // ---------------- MODO AÑADIR ----------------
                     Persona persona = new Persona(Guid.NewGuid(), nombre, age, birth, _photoFilePath ?? "", plus, _lon, _lat, null, null, false)
                     {
                         ownId = ownId
                     };
 
+                    // fallback plus code si no hay coords
                     if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
                     {
                         var calc = new CalcDistance();
@@ -335,13 +368,26 @@ namespace Poyecto2_Datos
                         }
                     }
 
+                    // parent por selección (por defecto)
                     Guid? parentId = null;
-                    if (CmbParent.SelectedItem is Node selNode)
+                    if (CmbParent.SelectedItem is Node selNode && selNode.familiar != null && selNode.familiar.id != Guid.Empty)
                     {
-                        if (selNode.familiar != null && selNode.familiar.id != Guid.Empty)
-                            parentId = selNode.familiar.id;
+                        parentId = selNode.familiar.id;
                     }
 
+                    // partner seleccionado (si hay)
+                    Guid? selectedPartnerId = null;
+                    if (CmbPartnerSelect.SelectedItem is Node selPartnerNode && selPartnerNode.familiar != null && selPartnerNode.familiar.id != Guid.Empty)
+                    {
+                        selectedPartnerId = selPartnerNode.familiar.id;
+                    }
+
+                    // NOTA: No heredamos parentId desde la pareja. 
+                    // Mantendremos parentId según lo que seleccione el usuario en CmbParent (o null).
+                    // La alineación visual con la pareja la hace UpdateCanvasLayout(), no los datos.
+
+
+                    // Agregar persona al TreeManager
                     if (_treeManager == null)
                     {
                         MessageBox.Show("No se pudo resolver TreeManager.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -349,45 +395,23 @@ namespace Poyecto2_Datos
                     }
 
                     _treeManager.AddPerson(persona, parentId);
-                    // --- después de agregar la persona al TreeManager ---
-                    try
-                    {
-                        // obtener el id del partner seleccionado (si cualquiera)
-                        Guid? selectedPartnerId = null;
-                        if (CmbPartnerSelect.SelectedItem is Node selPartnerNode)
-                        {
-                            if (selPartnerNode.familiar != null && selPartnerNode.familiar.id != Guid.Empty)
-                                selectedPartnerId = selPartnerNode.familiar.id;
-                        }
 
-                        if (selectedPartnerId.HasValue)
-                        {
-                            // evitar asociar la persona con sí misma
-                            if (selectedPartnerId.Value == persona.id)
-                            {
-                                MessageBox.Show("No puedes asignar la misma persona como pareja.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    // SetPartner espera idA, idB -> aquí hacemos A = persona.id, B = selectedPartnerId
-                                    _treeManager.SetPartner(persona.id, selectedPartnerId);
-                                }
-                                catch (Exception exPartner)
-                                {
-                                    MessageBox.Show("No se pudo asignar la pareja: " + exPartner.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning);
-                                }
-                            }
-                        }
-                    }
-                    catch
+                    // asignar pareja si aplicó (solo SetPartner, no ReassignParent)
+                    if (selectedPartnerId.HasValue)
                     {
-                        // ignorar errores no críticos
+                        try
+                        {
+                            _treeManager.SetPartner(persona.id, selectedPartnerId.Value);
+                        }
+                        catch (Exception exPartner)
+                        {
+                            MessageBox.Show("No se pudo asignar la pareja: " + exPartner.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     }
 
                     MessageBox.Show("Persona agregada correctamente.", "OK", MessageBoxButton.OK, MessageBoxImage.Information);
 
+                    // refrescar UI
                     LoadParentsCombo();
                     LoadPartnersCombo();
                     UpdateCanvasLayout();
@@ -395,76 +419,93 @@ namespace Poyecto2_Datos
                 }
                 else
                 {
-                    // MODO EDITAR: actualizamos la persona existente en el nodo
+                    // ---------------- MODO EDITAR ----------------
                     var node = _editingNode;
                     var persona = node.familiar;
 
+                    // actualizar campos simples
                     persona.name = nombre;
                     persona.ownId = ownId;
                     persona.birthdate = birth;
                     persona.age = age;
                     persona.photoFileName = _photoFilePath ?? persona.photoFileName;
                     persona.addresPlusCode = plus;
-                    persona.lon = _lat.HasValue ? _lon : persona.lon;
-                    persona.lat = _lat.HasValue ? _lat : persona.lat;
 
-                    // Si el usuario escogió un padre distinto -> ReassignParent
-                    Guid? newParentId = null;
-                    if (CmbParent.SelectedItem is Node selNode)
+                    // actualizar coordenadas sólo si el usuario convirtió/ingresó nuevas
+                    if (_lat.HasValue && _lon.HasValue)
                     {
-                        if (selNode.familiar != null && selNode.familiar.id != Guid.Empty)
-                            newParentId = selNode.familiar.id;
-                    }
-
-                    // solo reassign si cambió realmente
-                    if (persona.parentId != newParentId)
-                    {
-                        // ReassignParent maneja validaciones internas (evita ciclos, etc.)
-                        _treeManager.ReassignParent(persona.id, newParentId);
-                    }
-                    // --- manejo de pareja en edición ---
-                    // obtener el id del partner seleccionado (si cualquiera)
-                    Guid? selectedPartnerId = null;
-                    if (CmbPartnerSelect.SelectedItem is Node selPartnerNode)
-                    {
-                        if (selPartnerNode.familiar != null && selPartnerNode.familiar.id != Guid.Empty)
-                            selectedPartnerId = selPartnerNode.familiar.id;
-                    }
-
-                    // Si seleccionaron la misma persona -> advertir y no asignar
-                    if (selectedPartnerId.HasValue && selectedPartnerId.Value == persona.id)
-                    {
-                        MessageBox.Show("No puedes asignar la misma persona como pareja.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        persona.lon = _lon;
+                        persona.lat = _lat;
                     }
                     else
                     {
-                        // Llamar a SetPartner (si selectedPartnerId == null -> se desasigna)
+                        // intentar convertir plus code si hay y no hay coords
+                        if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
+                        {
+                            var calc = new CalcDistance();
+                            if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
+                            {
+                                persona.lon = Lon;
+                                persona.lat = Lat;
+                            }
+                        }
+                    }
+
+                    // manejar cambio de padre (si el usuario escogió otro)
+                    Guid? newParentId = null;
+                    if (CmbParent.SelectedItem is Node selNode2 && selNode2.familiar != null && selNode2.familiar.id != Guid.Empty)
+                    {
+                        newParentId = selNode2.familiar.id;
+                    }
+
+                    if (persona.parentId != newParentId)
+                    {
                         try
                         {
-                            _treeManager.SetPartner(persona.id, selectedPartnerId);
+                            _treeManager.ReassignParent(persona.id, newParentId);
                         }
-                        catch (Exception exP)
+                        catch (Exception exReassign)
                         {
-                            MessageBox.Show("No se pudo asignar la pareja: " + exP.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            MessageBox.Show("No se pudo reasignar padre: " + exReassign.Message, "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
                         }
                     }
-                    // Recalcular aristas/distancias y actualizar UI
-                    // Usamos los métodos públicos disponibles
-                    try
+
+                    // manejar pareja: sólo SetPartner (no ReassignParent) — si seleccionan "Ninguna", pasar null
+                    Guid? selectedPartnerIdEdit = null;
+                    if (CmbPartnerSelect.SelectedItem is Node selPartnerNodeEdit && selPartnerNodeEdit.familiar != null && selPartnerNodeEdit.familiar.id != Guid.Empty)
                     {
-                        _treeManager.GetEdgesWithWeights();
+                        selectedPartnerIdEdit = selPartnerNodeEdit.familiar.id;
                     }
-                    catch { /* ignorar */ }
-                    try
+
+                    if (selectedPartnerIdEdit.HasValue)
                     {
-                        _treeManager.ComputeAllDijkstras();
+                        if (selectedPartnerIdEdit.Value == persona.id)
+                        {
+                            MessageBox.Show("No puedes asignar la misma persona como pareja.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                _treeManager.SetPartner(persona.id, selectedPartnerIdEdit.Value);
+                                // NOTA: NO llamamos a ReassignParent para no alterar parentId del partner
+                            }
+                            catch (Exception exP)
+                            {
+                                MessageBox.Show("No se pudo asignar la pareja: " + exP.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            }
+                        }
                     }
-                    catch { /* ignorar */ }
-                    try
+                    else
                     {
-                        _treeManager.ComputeMinMaxPairs();
+                        // desasignar pareja si seleccionó "(Ninguna)"
+                        try { _treeManager.SetPartner(persona.id, null); } catch { }
                     }
-                    catch { /* ignorar */ }
+
+                    // recalcular distancias/estadísticas (intentar, ignorar fallos no críticos)
+                    try { _treeManager.GetEdgesWithWeights(); } catch { }
+                    try { _treeManager.ComputeAllDijkstras(); } catch { }
+                    try { _treeManager.ComputeMinMaxPairs(); } catch { }
 
                     // refrescar UI y limpiar modo edición
                     LoadParentsCombo();
@@ -482,6 +523,7 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al guardar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
 
         // Cambia texto del boton guardar a modo edición
         private void BtnSave_SetEditMode()
@@ -531,7 +573,6 @@ namespace Poyecto2_Datos
             TxtNombre.Text = "";
             TxtCedula.Text = "";
             DpFechaNacimiento.SelectedDate = null;
-            ChkVivo.IsChecked = true;
             TxtPlusCode.Text = "";
             LblLat.Text = "-";
             LblLon.Text = "-";
@@ -541,15 +582,16 @@ namespace Poyecto2_Datos
             CmbParent.SelectedIndex = 0;
             CmbPartnerSelect.SelectedIndex = 0;
             TxtNotes.Text = "";
+            TxtAge.Text = "";
         }
 
-        #region Canvas-based tree layout & drawing
+        #region Canvas-based tree layout & drawing (ahora carga edición al clic)
         private const double NodeWidth = 160;
         private const double NodeHeight = 60;
         private const double HorizontalSpacing = 20;
         private const double VerticalSpacing = 60;
 
-        // se encarga de dibujar las lineas y los nodos
+
         private void UpdateCanvasLayout()
         {
             try
@@ -581,14 +623,159 @@ namespace Poyecto2_Datos
                 TreeCanvas.Width = Math.Max(maxX, 800);
                 TreeCanvas.Height = Math.Max(maxY, 600);
 
-                // dibujar aristas (líneas) primero
+                // ---------- Ajuste visual: colocar pareja siempre al lado derecho del anchor (mejorado) ----------
+                try
+                {
+                    var keys = positions.Keys.ToList();
+                    var processedPairs = new HashSet<(Guid, Guid)>();
+                    double gap = 12.0; // separación entre nodos cuando se colocan en fila
+
+                    // Helper: rectángulo ocupado por un nodo en posiciones (para detectar colisiones)
+                    Rect NodeRect(Point p) => new Rect(p.X, p.Y, NodeWidth, NodeHeight);
+
+                    // Mueve recursivamente a la derecha cualquier nodo que colisione con targetRect (solo nodos en mismo nivel)
+                    void ShiftRightRecursive(Rect targetRect, double step, HashSet<Node> visited, int depth = 0)
+                    {
+                        if (depth > 200) return; // safety
+                        var colliders = positions.Where(kv =>
+                        {
+                            var r = NodeRect(kv.Value);
+                            // considerar sólo nodos que intersectan y que no son parte del targetRect exacto
+                            return r.IntersectsWith(targetRect);
+                        })
+                            .Select(kv => kv.Key)
+                            .Where(n => !visited.Contains(n))
+                            .ToList();
+
+                        foreach (var col in colliders)
+                        {
+                            // no forzamos mover anchors con hijos si son anchors en parejas (respetamos jerarquía)
+                            if (col.children != null && col.children.Count > 0) continue;
+
+                            visited.Add(col);
+
+                            // desplazar este collider a la derecha
+                            var oldPos = positions[col];
+                            var newPos = new Point(oldPos.X + step, oldPos.Y);
+                            positions[col] = newPos;
+
+                            // construir nuevo rect para detectar siguiente colisión
+                            var newRect = NodeRect(newPos);
+
+                            // recursividad: si al moverlo choca con otros, moverlos también
+                            ShiftRightRecursive(newRect, step, visited, depth + 1);
+                        }
+                    }
+
+                    foreach (var node in keys)
+                    {
+                        if (node?.familiar?.partnerId == null) continue;
+
+                        var a = node.familiar.id;
+                        var b = node.familiar.partnerId.Value;
+                        var key = a.CompareTo(b) <= 0 ? (a, b) : (b, a);
+                        if (processedPairs.Contains(key)) continue;
+
+                        var nodeA = keys.FirstOrDefault(n => n.familiar != null && n.familiar.id == key.Item1);
+                        var nodeB = keys.FirstOrDefault(n => n.familiar != null && n.familiar.id == key.Item2);
+                        if (nodeA == null || nodeB == null) { processedPairs.Add(key); continue; }
+
+                        var posA = positions[nodeA];
+                        var posB = positions[nodeB];
+
+                        // Elegir ancla: preferir el que tenga hijos (no mover padres), si ninguno tiene hijos usar el más a la izquierda
+                        bool AHasChildren = nodeA.children != null && nodeA.children.Count > 0;
+                        bool BHasChildren = nodeB.children != null && nodeB.children.Count > 0;
+
+                        Node anchor = nodeA;
+                        Node mover = nodeB;
+                        Point anchorPos = posA;
+                        Point moverPos = posB;
+
+                        if (AHasChildren && !BHasChildren)
+                        {
+                            anchor = nodeA; mover = nodeB; anchorPos = posA; moverPos = posB;
+                        }
+                        else if (BHasChildren && !AHasChildren)
+                        {
+                            anchor = nodeB; mover = nodeA; anchorPos = posB; moverPos = posA;
+                        }
+                        else
+                        {
+                            if (posA.X <= posB.X)
+                            {
+                                anchor = nodeA; mover = nodeB; anchorPos = posA; moverPos = posB;
+                            }
+                            else
+                            {
+                                anchor = nodeB; mover = nodeA; anchorPos = posB; moverPos = posA;
+                            }
+                        }
+
+                        // posición objetivo: justo a la derecha del anchor
+                        double targetX = anchorPos.X + NodeWidth + gap;
+                        double targetY = anchorPos.Y;
+                        var targetRect = NodeRect(new Point(targetX, targetY));
+
+                        // Si el mover ya está en targetX aproximado -> solo alinear Y
+                        if (Math.Abs(moverPos.X - targetX) < 1.0)
+                        {
+                            positions[mover] = new Point(moverPos.X, targetY);
+                            processedPairs.Add(key);
+                            continue;
+                        }
+
+                        // Detectar colisiones en targetRect con nodos existentes (excepto mover y anchor)
+                        var existingRects = positions.ToDictionary(kv => kv.Key, kv => NodeRect(kv.Value));
+                        var colliding = existingRects.Where(kv => kv.Key != mover && kv.Key != anchor && kv.Value.IntersectsWith(targetRect))
+                                                     .Select(kv => kv.Key)
+                                                     .ToList();
+
+                        if (!colliding.Any())
+                        {
+                            // libre, asignar directamente
+                            positions[mover] = new Point(targetX, targetY);
+                            processedPairs.Add(key);
+                            continue;
+                        }
+
+                        // Hay colisiones: en lugar de empujar mover más a la derecha, vamos a desplazar recursivamente
+                        // los nodos que colisionan (y los que colisionen a su vez) hacia la derecha por (NodeWidth + gap).
+                        var visited = new HashSet<Node>();
+                        double step = NodeWidth + gap;
+                        // Movemos solo nodos que están en el mismo nivel Y (aprox), para no afectar otras filas
+                        // Crear rect objetivo inicial y desplazar colliders recursivamente
+                        ShiftRightRecursive(targetRect, step, visited);
+
+                        // Tras desplazar a los colliders, ahora debería quedar libre; asignar mover en target
+                        positions[mover] = new Point(targetX, targetY);
+
+                        processedPairs.Add(key);
+                    }
+                }
+                catch (Exception exPos)
+                {
+                    Console.WriteLine("Ajuste de posiciones de pareja error (lado derecho, con shift): " + exPos.Message);
+                }
+
+
+
+
+                // dibujar aristas (líneas) primero: SOLO si child.familiar.parentId apunta a este parent
                 foreach (var kv in positions)
                 {
                     var parent = kv.Key;
                     var parentPos = kv.Value;
+
                     foreach (var child in parent.children)
                     {
                         if (!positions.ContainsKey(child)) continue;
+
+                        if (child.familiar == null || parent.familiar == null) continue;
+
+                        if (!child.familiar.parentId.HasValue || child.familiar.parentId.Value != parent.familiar.id)
+                            continue;
+
                         var childPos = positions[child];
 
                         var p1 = new Point(parentPos.X + NodeWidth / 2.0, parentPos.Y + NodeHeight);
@@ -606,12 +793,11 @@ namespace Poyecto2_Datos
                         TreeCanvas.Children.Add(line);
                     }
                 }
-                // --- DIBUJAR LINEAS DE PAREJA (verde) ---
+
+                // ---------- DIBUJAR LINEAS DE PAREJA (verde) ----------
                 try
                 {
-                    // evitamos dibujar duplicados; solo dibujamos si node.id < partnerId (orden por Guid)
                     var partnerDrawn = new HashSet<(Guid, Guid)>();
-
                     foreach (var kv in positions)
                     {
                         var node = kv.Key;
@@ -621,19 +807,14 @@ namespace Poyecto2_Datos
                         if (!node.familiar.partnerId.HasValue) continue;
 
                         var partnerId = node.familiar.partnerId.Value;
-
-                        // evitar placeholder o id vacio
                         if (partnerId == Guid.Empty) continue;
 
-                        // buscar partner node en positions
                         var partnerNode = positions.Keys.FirstOrDefault(n => n.familiar != null && n.familiar.id == partnerId);
-                        if (partnerNode == null) continue; // partner no está en el layout (podría ser externo)
+                        if (partnerNode == null) continue;
 
-                        // normalizar orden para evitar duplicar la línea
                         var a = node.familiar.id;
                         var b = partnerId;
                         if (a.CompareTo(b) > 0) (a, b) = (b, a);
-
                         if (partnerDrawn.Contains((a, b))) continue;
                         partnerDrawn.Add((a, b));
 
@@ -641,7 +822,6 @@ namespace Poyecto2_Datos
                         var p2pos = positions[partnerNode];
                         var p2 = new Point(p2pos.X + NodeWidth / 2.0, p2pos.Y + NodeHeight / 2.0);
 
-                        // linea verde
                         var partnerLine = new Line
                         {
                             X1 = p1.X,
@@ -650,16 +830,29 @@ namespace Poyecto2_Datos
                             Y2 = p2.Y,
                             Stroke = Brushes.ForestGreen,
                             StrokeThickness = 3,
-                            StrokeDashArray = new DoubleCollection() { 2, 2 }, // opcional: línea punteada
+                            StrokeDashArray = new DoubleCollection() { 2, 2 },
                             Opacity = 0.95
                         };
-                        // poner por debajo de los nodos (se añaden antes de los rectángulos)
                         TreeCanvas.Children.Add(partnerLine);
+
+                        var midX = (p1.X + p2.X) / 2.0;
+                        var midY = (p1.Y + p2.Y) / 2.0;
+                        var lbl = new TextBlock
+                        {
+                            Text = "Pareja",
+                            Background = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
+                            Padding = new Thickness(4, 2, 4, 2),
+                            FontSize = 11
+                        };
+                        lbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        Canvas.SetLeft(lbl, midX - (lbl.DesiredSize.Width / 2.0));
+                        Canvas.SetTop(lbl, midY - (lbl.DesiredSize.Height / 2.0));
+                        TreeCanvas.Children.Add(lbl);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception exPartner)
                 {
-                    Console.WriteLine("Error dibujando líneas de pareja: " + ex.Message);
+                    Console.WriteLine("Error dibujando líneas de pareja: " + exPartner.Message);
                 }
 
                 // dibujar nodos (por encima)
@@ -675,6 +868,8 @@ namespace Poyecto2_Datos
                 Console.WriteLine("Canvas layout error: " + ex.Message);
             }
         }
+
+
 
         // Calcula el ancho total requerido por el subárbol (suma de anchos de hojas más spacing)
         private double MeasureSubtreeWidth(Node node)
@@ -720,7 +915,7 @@ namespace Poyecto2_Datos
             double myX = centerX - NodeWidth / 2.0;
             positions[node] = new Point(myX, y);
         }
-        // se encarga de dibujar los nodos
+
         private void DrawNode(Node node, Point pos)
         {
             // rectángulo contenedor (Border)
@@ -881,7 +1076,6 @@ namespace Poyecto2_Datos
         #endregion
 
         #region Load node into form (edit)
-        // se encarga de colocar la informacion en el formulario en caso de querer editar un nodo
         private void LoadNodeIntoForm(Node node)
         {
             if (node == null) return;
@@ -892,10 +1086,12 @@ namespace Poyecto2_Datos
             TxtNombre.Text = node.familiar.name ?? "";
             TxtCedula.Text = node.familiar.ownId ?? "";
             DpFechaNacimiento.SelectedDate = node.familiar.birthdate == DateTime.MinValue ? (DateTime?)null : node.familiar.birthdate;
-            ChkVivo.IsChecked = true; // no tenemos info de fallecido en Persona, ajustar si la tuvieras
             TxtPlusCode.Text = node.familiar.addresPlusCode ?? "";
             _lon = node.familiar.lon;
             _lat = node.familiar.lat;
+            // edad
+            TxtAge.Text = node.familiar.age.ToString();
+
             LblLat.Text = node.familiar.lat.HasValue ? node.familiar.lat.Value.ToString("F6") : "-";
             LblLon.Text = node.familiar.lon.HasValue ? node.familiar.lon.Value.ToString("F6") : "-";
 
@@ -934,6 +1130,7 @@ namespace Poyecto2_Datos
                 // seleccionar placeholder
                 CmbParent.SelectedIndex = 0;
             }
+            // seleccionar pareja en CmbPartnerSelect si existe
             // RECARGAR lista de partners excluyendo el nodo que estamos editando
             LoadPartnersCombo(node.familiar.id);
 
