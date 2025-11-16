@@ -1,4 +1,4 @@
-<Window x:Class="ProyectoDatos22.AddNodeWindow"
+<Window x:Class="Poyecto2_Datos.AddNodeWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Añadir / Modificar Persona" Height="520" Width="900" WindowStartupLocation="CenterOwner" WindowState="Maximized">
