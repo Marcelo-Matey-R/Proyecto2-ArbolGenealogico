@@ -1,4 +1,4 @@
-<Window x:Class="ProyectoDatos22.StatsWindow"
+<Window x:Class="Poyecto2_Datos.StatsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Estadísticas del Árbol" Height="520" Width="800" WindowStartupLocation="CenterOwner" Background="#FFF5F5F5" WindowState="Maximized">
