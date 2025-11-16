@@ -1,4 +1,4 @@
-<Window x:Class="Poyecto2_Datos.AddNodeWindow"
+<Window x:Class="ProyectoDatos22.AddNodeWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Añadir / Modificar Persona" Height="520" Width="900" WindowStartupLocation="CenterOwner" WindowState="Maximized">
@@ -9,21 +9,29 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!--Formulario de informacion para aniadir al nodo-->
+        <!-- Formulario (col 0) -->
         <Border Grid.Column="0" Padding="10" BorderBrush="#EEE" BorderThickness="1" CornerRadius="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <TextBlock Text="Añadir nuevo miembro" FontSize="18" FontWeight="Bold" Margin="0,0,0,8"/>
                     <TextBlock Text="Nombre completo" />
                     <TextBox x:Name="TxtNombre" Margin="0,4,0,8"/>
-                    <TextBlock Text="Cédula / ID" />
+                    <TextBlock Text="Cédula / ID (ownId)" />
                     <TextBox x:Name="TxtCedula" Margin="0,4,0,8"/>
                     <TextBlock Text="Fecha de nacimiento" />
                     <DatePicker x:Name="DpFechaNacimiento" Margin="0,4,0,8"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-                        <CheckBox x:Name="ChkVivo" IsChecked="True" VerticalAlignment="Center"/>
-                        <TextBlock Text="Vivo" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Edad:" VerticalAlignment="Center" Width="80"/>
+                        <TextBox x:Name="TxtAge"
+             Width="120"
+             HorizontalAlignment="Left"
+             MaxLength="3"
+             PreviewTextInput="TxtAge_PreviewTextInput"
+             DataObject.Pasting="TxtAge_Pasting"
+             ToolTip="Ingrese la edad en años (sólo números). Si queda vacío se calculará desde la fecha de nacimiento."
+             />
                     </StackPanel>
+
 
                     <TextBlock Text="Coordenadas (Plus Code)" />
                     <DockPanel Margin="0,4,0,8">
@@ -41,7 +49,7 @@
                     <TextBlock Text="Notas / Descripción (opcional)" />
                     <TextBox x:Name="TxtNotes" Height="80" AcceptsReturn="True" Margin="0,4,0,8"/>
 
-                    <TextBlock Text="Relaciones: seleccionar padre/madre si existe en el árbol" FontStyle="Italic" Margin="0,6,0,2"/>
+                    <TextBlock Text="Relaciones (opcional): seleccionar padre/madre si existe en el árbol" FontStyle="Italic" Margin="0,6,0,2"/>
                     <ComboBox x:Name="CmbParent" Margin="0,4,0,8" IsEditable="False" SelectedIndex="0" DisplayMemberPath="familiar.name"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,4,0,8">
@@ -64,7 +72,7 @@
               IsEditable="False"/>
                     </StackPanel>
 
-                    <!--Botones de volver al menu/guardar nodo/cancelar-->
+                    <!-- BOTONES: Guardar / Cancelar / Regresar -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
                         <Button Content="Regresar" Width="120" Margin="6,0" Click="BtnBack_Click" />
                         <Button Content="Cancelar" Width="120" Margin="6,0" Click="BtnCancel_Click"/>
@@ -74,9 +82,10 @@
             </ScrollViewer>
         </Border>
 
+        <!-- spacer columna 1 -->
         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
 
-        <!--Canvas-->
+        <!-- Visualización con Canvas (col 2) -->
         <Border Grid.Column="2" Padding="6" BorderBrush="#EEE" BorderThickness="1" CornerRadius="6">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                 <Canvas x:Name="TreeCanvas" Background="White" MinHeight="400" MinWidth="600"/>
