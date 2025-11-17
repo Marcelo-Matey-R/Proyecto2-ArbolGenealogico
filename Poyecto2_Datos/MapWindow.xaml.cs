@@ -20,7 +20,7 @@ using System.Windows.Input;
 using System.Drawing;
 using static Mapsui.Tiling.OpenStreetMap; // CreateTileLayer()
 
-namespace ProyectoDatos22
+namespace Poyecto2_Datos
 {
     public partial class MapWindow : Window
     {
