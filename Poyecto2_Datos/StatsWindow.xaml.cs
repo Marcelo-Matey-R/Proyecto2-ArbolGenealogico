@@ -8,7 +8,7 @@ using System.Windows.Controls;
 using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 
-namespace Poyecto2_Datos
+namespace ProyectoDatos22
 {
     public partial class StatsWindow : Window
     {
@@ -265,47 +265,6 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al recalcular: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-        private void BtnExportCsv_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var pairs = BuildAllPairsList();
-                if (pairs == null || pairs.Count == 0)
-                {
-                    MessageBox.Show("No hay pares para exportar.", "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                var dlg = new SaveFileDialog()
-                {
-                    Title = "Exportar pares a CSV",
-                    Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
-                    FileName = "pares_distancias.csv"
-                };
-                if (dlg.ShowDialog() != true) return;
-
-                using (var sw = new StreamWriter(dlg.FileName))
-                {
-                    sw.WriteLine("PersonA,PersonB,Distance_km,Distance_m");
-                    foreach (var p in pairs)
-                    {
-                        // Escape comas en nombres si es necesario
-                        var a = $"\"{p.PersonA.Replace("\"", "\"\"")}\"";
-                        var b = $"\"{p.PersonB.Replace("\"", "\"\"")}\"";
-                        var km = p.DistanceKm;
-                        var m = p.DistanceMeters;
-                        sw.WriteLine($"{a},{b},{km},{m}");
-                    }
-                }
-
-                MessageBox.Show("Exportado correctamente.", "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error al exportar CSV: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
         private void BtnBack_Click(object sender, RoutedEventArgs e)
         {
             // Buscar si hay una instancia abierta del MainWindow
@@ -342,3 +301,4 @@ namespace Poyecto2_Datos
         }
     }
 }
+
