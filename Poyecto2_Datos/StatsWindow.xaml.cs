@@ -8,7 +8,7 @@ using System.Windows.Controls;
 using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 
-namespace ProyectoDatos22
+namespace Poyecto2_Datos
 {
     public partial class StatsWindow : Window
     {
