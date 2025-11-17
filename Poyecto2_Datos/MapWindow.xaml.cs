@@ -20,7 +20,7 @@ using System.Windows.Input;
 using System.Drawing;
 using static Mapsui.Tiling.OpenStreetMap; // CreateTileLayer()
 
-namespace Poyecto2_Datos
+namespace ProyectoDatos22
 {
     public partial class MapWindow : Window
     {
@@ -155,6 +155,37 @@ namespace Poyecto2_Datos
                 foreach (var root in _treeManager.Roots)
                     root.TransverseDFS(n => { if (n != null && !allNodes.Contains(n)) allNodes.Add(n); });
 
+                // Mapear por coordenadas (clave = "lat_F6|lon_F6") para agrupar ubicaciones idénticas
+                var groups = new Dictionary<string, List<Persona>>();
+
+                foreach (var node in allNodes)
+                {
+                    var person = node?.familiar;
+                    if (person == null) continue;
+
+                    // intentar coords desde pluscode si faltan
+                    if (!person.HasCoordinates() && !string.IsNullOrWhiteSpace(person.addresPlusCode))
+                    {
+                        try
+                        {
+                            var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
+                            if (calc.TryConvertPlusCode(person.addresPlusCode, out double lon, out double lat))
+                            {
+                                person.lon = lon;
+                                person.lat = lat;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (!person.lon.HasValue || !person.lat.HasValue) continue;
+
+                    // clave agrupada con precisión F6
+                    string key = $"{person.lat.Value:F6}|{person.lon.Value:F6}";
+                    if (!groups.ContainsKey(key)) groups[key] = new List<Persona>();
+                    groups[key].Add(person);
+                }
+
                 // Obtener o crear la layer de marcadores
                 var layer = mapControl.Map.Layers.FirstOrDefault(l => l.Name == "PersonMarkers") as MemoryLayer;
                 if (layer == null)
@@ -170,164 +201,98 @@ namespace Poyecto2_Datos
 
                 var newFeatures = new List<IFeature>();
 
-                foreach (var node in allNodes)
+                // Crear un solo feature por grupo
+                foreach (var kv in groups)
                 {
-                    var person = node?.familiar;
-                    if (person == null) continue;
+                    var personsAtLocation = kv.Value;
+                    if (personsAtLocation == null || personsAtLocation.Count == 0) continue;
 
-                    // Intentar rellenar coords desde pluscode si faltan
-                    if (!person.HasCoordinates() && !string.IsNullOrWhiteSpace(person.addresPlusCode))
-                    {
-                        try
-                        {
-                            var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
-                            if (calc.TryConvertPlusCode(person.addresPlusCode, out double lon, out double lat))
-                            {
-                                person.lon = lon;
-                                person.lat = lat;
-                            }
-                        }
-                        catch { /* ignore */ }
-                    }
-
-                    if (!person.lon.HasValue || !person.lat.HasValue) continue;
-
-                    // Proyectar lon/lat a WebMercator
-                    (double x, double y) = Mapsui.Projections.SphericalMercator.FromLonLat(person.lon.Value, person.lat.Value);
+                    // tomar coords de la primera persona del grupo
+                    var p0 = personsAtLocation[0];
+                    (double x, double y) = Mapsui.Projections.SphericalMercator.FromLonLat(p0.lon.Value, p0.lat.Value);
                     var mp = new MPoint(x, y);
 
                     var feat = new PointFeature(mp);
 
-                    // Construir símbolo base (sin SymbolType.Image, para evitar error)
-                    var symbol = new Mapsui.Styles.SymbolStyle
-                    {
-                        // NO ASIGNAR SymbolType.Image aquí (da error en tu versión)
-                        SymbolScale = 1.0,
-                        RotateWithMap = false
-                    };
-
-                    bool symbolAssigned = false;
+                    // estilo (imagen si tiene la primera persona, fallback a círculo)
+                    Mapsui.Styles.SymbolStyle symbol;
                     try
                     {
-                        if (!string.IsNullOrWhiteSpace(person.photoFileName) && File.Exists(person.photoFileName))
+                        // intenta usar la imagen del primer usuario del grupo
+                        var candidateImage = p0.photoFileName;
+                        if (!string.IsNullOrWhiteSpace(candidateImage) && File.Exists(candidateImage))
                         {
-                            string filePath = person.photoFileName;
-                            string fileUri = new Uri(filePath).AbsoluteUri; // file:///...
-
-                            // 1) Intentar IconPath (Mapsui v5+)
+                            // intenta asignar icono por las mismas técnicas que ya tenías (IconPath, BitmapId, etc.)
+                            // para simplicidad reutilizamos tu lógica mínima: intentar IconPath por reflexión
+                            symbol = new Mapsui.Styles.SymbolStyle { SymbolScale = 1.0, RotateWithMap = false };
                             var iconPathProp = typeof(Mapsui.Styles.SymbolStyle).GetProperty("IconPath");
                             if (iconPathProp != null && iconPathProp.CanWrite && iconPathProp.PropertyType == typeof(string))
                             {
-                                iconPathProp.SetValue(symbol, fileUri);
-                                symbolAssigned = true;
+                                iconPathProp.SetValue(symbol, new Uri(candidateImage).AbsoluteUri);
                             }
-
-                            // 2) Si no se asignó, intentar Image/ImageSource/IconName etc. (por reflexión)
-                            if (!symbolAssigned)
+                            else
                             {
-                                var candidateProps = new[] { "Image", "ImageSource", "Icon", "IconSource" };
-                                foreach (var name in candidateProps)
+                                // fallback simple si no se puede asignar IconPath
+                                symbol = new Mapsui.Styles.SymbolStyle
                                 {
-                                    var p = typeof(Mapsui.Styles.SymbolStyle).GetProperty(name);
-                                    if (p != null && p.CanWrite)
-                                    {
-                                        if (p.PropertyType == typeof(string))
-                                        {
-                                            p.SetValue(symbol, fileUri);
-                                            symbolAssigned = true;
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            try { p.SetValue(symbol, fileUri); symbolAssigned = true; break; } catch { }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 3) Fallback: buscar BitmapRegistry/BitmapManager y usar Register por reflexión para obtener id
-                            if (!symbolAssigned)
-                            {
-                                Type? registryType = null;
-                                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                                {
-                                    registryType = asm.GetType("Mapsui.Styles.BitmapRegistry") ?? asm.GetType("Mapsui.BitmapRegistry");
-                                    if (registryType != null) break;
-                                }
-
-                                if (registryType != null)
-                                {
-                                    // buscar método Register que acepte string o Stream
-                                    var regMethod = registryType.GetMethod("Register", new[] { typeof(string) })
-                                                    ?? registryType.GetMethod("Register", new[] { typeof(Stream) })
-                                                    ?? registryType.GetMethod("RegisterImage", new[] { typeof(string) });
-
-                                    if (regMethod != null)
-                                    {
-                                        object? registryInstance = null;
-                                        if (!regMethod.IsStatic)
-                                        {
-                                            var prop = registryType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
-                                            if (prop != null) registryInstance = prop.GetValue(null);
-                                        }
-
-                                        object? regResult = null;
-                                        try
-                                        {
-                                            if (regMethod.GetParameters().Length == 1 && regMethod.GetParameters()[0].ParameterType == typeof(string))
-                                            {
-                                                regResult = regMethod.Invoke(registryInstance, new object[] { filePath });
-                                            }
-                                            else if (regMethod.GetParameters().Length == 1 && regMethod.GetParameters()[0].ParameterType == typeof(Stream))
-                                            {
-                                                using var fs = File.OpenRead(filePath);
-                                                regResult = regMethod.Invoke(registryInstance, new object[] { fs });
-                                            }
-                                        }
-                                        catch { regResult = null; }
-
-                                        if (regResult is int bmpId)
-                                        {
-                                            var bmpIdProp = typeof(Mapsui.Styles.SymbolStyle).GetProperty("BitmapId");
-                                            if (bmpIdProp != null && bmpIdProp.CanWrite)
-                                            {
-                                                bmpIdProp.SetValue(symbol, bmpId);
-                                                symbolAssigned = true;
-                                            }
-                                        }
-                                    }
-                                }
+                                    SymbolType = Mapsui.Styles.SymbolType.Ellipse,
+                                    SymbolScale = 0.8,
+                                    Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
+                                    Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
+                                };
                             }
                         }
+                        else
+                        {
+                            // sin imagen -> símbolo circular
+                            symbol = new Mapsui.Styles.SymbolStyle
+                            {
+                                SymbolType = Mapsui.Styles.SymbolType.Ellipse,
+                                SymbolScale = 0.8,
+                                Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
+                                Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
+                            };
+                        }
                     }
-                    catch (Exception exImg)
+                    catch
                     {
-                        Console.WriteLine("Warning: fallo asignando imagen al símbolo: " + exImg.Message);
-                    }
-
-                    // Si aún no se asignó una imagen válida, usar un símbolo simple (círculo/pin)
-                    if (!symbolAssigned)
-                    {
-                        var fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220));
-                        var outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1);
                         symbol = new Mapsui.Styles.SymbolStyle
                         {
                             SymbolType = Mapsui.Styles.SymbolType.Ellipse,
                             SymbolScale = 0.8,
-                            Fill = fill,
-                            Outline = outline
+                            Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
+                            Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
                         };
                     }
 
-                    // añadir estilo y atributos
                     feat.Styles.Add(symbol);
-                    feat["personaId"] = person.id.ToString();
-                    feat["name"] = person.name ?? "";
+
+                    // Atributos para hit-testing:
+                    // si hay solo 1 persona en la ubicación, guardamos 'personaId' (compat con lo anterior)
+                    if (personsAtLocation.Count == 1)
+                    {
+                        feat["personaId"] = personsAtLocation[0].id.ToString();
+                        feat["name"] = personsAtLocation[0].name ?? "";
+                    }
+                    else
+                    {
+                        // varias personas: guardamos 'personIds' y 'personNames' como strings separados por ';'
+                        var ids = personsAtLocation.Select(p => p.id.ToString()).ToArray();
+                        var names = personsAtLocation.Select(p => (p.name ?? "")).ToArray();
+                        feat["personIds"] = string.Join(";", ids);
+                        feat["personNames"] = string.Join(";", names);
+
+                        // opcional: tooltip compacto
+                        feat["name"] = $"{personsAtLocation.Count} personas aquí";
+                    }
+
+                    // añadir también coordenadas como atributos (útil para el MessageBox)
+                    feat["lat"] = p0.lat.Value;
+                    feat["lon"] = p0.lon.Value;
 
                     newFeatures.Add(feat);
                 }
 
-                // Asignar features a la capa y refrescar mapa
                 layer.Features = newFeatures;
                 mapControl.Refresh();
             }
@@ -336,6 +301,7 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al refrescar marcadores: " + ex.Message, "Mapa", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
 
 
         private void EnsureDistanceLayer()
@@ -553,53 +519,96 @@ namespace Poyecto2_Datos
         {
             try
             {
-                // 1) convertir la posición del ratón a ScreenPosition
                 var pos = e.GetPosition(mapControl);
                 var screenPos = new ScreenPosition((int)pos.X, (int)pos.Y);
 
-                // 2) llamar a la versión síncrona GetMapInfo (pasa las capas del mapa)
                 var layers = mapControl.Map?.Layers ?? Enumerable.Empty<ILayer>();
                 var mapInfo = mapControl.GetMapInfo(screenPos, layers);
 
                 if (mapInfo?.Feature != null)
                 {
-
                     var feature = mapInfo.Feature;
 
-                    // 3) intentar obtener atributo "personaId" o "name" de forma robusta
-                    object? personaIdObj = TryGetFeatureAttribute(feature, "personaId")
-                                           ?? TryGetFeatureAttribute(feature, "name");
+                    // Intentar atributos múltiples: personIds (grupo) o personaId (único)
+                    object? personIdsObj = TryGetFeatureAttribute(feature, "personIds");
+                    object? personaIdObj = TryGetFeatureAttribute(feature, "personaId");
+                    object? personNamesObj = TryGetFeatureAttribute(feature, "personNames");
 
-                    if (personaIdObj != null)
+                    if (personIdsObj != null)
                     {
-                        // si es GUID -> abrir edición; sino mostrar texto
+                        // caso grupo: string "id1;id2;..."
+                        var raw = personIdsObj.ToString() ?? "";
+                        var idParts = raw.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        var lines = new List<string>();
+                        foreach (var sid in idParts)
+                        {
+                            if (Guid.TryParse(sid, out var gid))
+                            {
+                                var node = _treeManager?.FindNodeById(gid);
+                                if (node?.familiar != null)
+                                {
+                                    var p = node.familiar;
+                                    lines.Add($"{p.name} — Ced: {p.ownId} — Lat/Lon: {(p.HasCoordinates() ? $"{p.lat:F6}, {p.lon:F6}" : "—")}");
+                                }
+                                else
+                                {
+                                    lines.Add($"(id: {sid}) — no se encontró nodo");
+                                }
+                            }
+                            else
+                            {
+                                lines.Add($"(id inválido: {sid})");
+                            }
+                        }
+
+                        var msg = $"Hay {idParts.Length} persona(s) en esta ubicación:\n\n" + string.Join("\n", lines);
+                        MessageBox.Show(msg, "Personas en la ubicación", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                        // No llamamos DrawDistanceLines automáticamente para el grupo.
+                        return;
+                    }
+                    else if (personaIdObj != null)
+                    {
+                        // caso único (compatibilidad con tu comportamiento previo)
                         if (Guid.TryParse(personaIdObj.ToString(), out var pid))
                         {
-                            // si parseaste pid con éxito:
+                            // llamar a DrawDistanceLines como antes
                             DrawDistanceLines(pid);
+
                             var node = _treeManager?.FindNodeById(pid);
-                            if (node != null)
+                            if (node != null && node.familiar != null)
                             {
-                                MessageBox.Show($"Seleccionado: {node.familiar.name}\nOwnId: {node.familiar.ownId}", "Persona", MessageBoxButton.OK, MessageBoxImage.Information);
+                                MessageBox.Show($"Seleccionado: {node.familiar.name}\nCedula: {node.familiar.ownId}", "Persona", MessageBoxButton.OK, MessageBoxImage.Information);
                             }
                             else
                             {
                                 MessageBox.Show($"No se encontró nodo con id {pid}", "Mapa", MessageBoxButton.OK, MessageBoxImage.Warning);
                             }
+                            return;
                         }
                         else
                         {
                             MessageBox.Show($"Info: {personaIdObj}", "Mapa", MessageBoxButton.OK, MessageBoxImage.Information);
+                            return;
                         }
+                    }
+                    else if (personNamesObj != null)
+                    {
+                        // fallback por si hay names sin ids
+                        var raw = personNamesObj.ToString() ?? "";
+                        var parts = raw.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                        var msg = $"Personas en la ubicación:\n\n" + string.Join("\n", parts);
+                        MessageBox.Show(msg, "Personas", MessageBoxButton.OK, MessageBoxImage.Information);
+                        return;
                     }
                 }
             }
             catch (Exception ex)
             {
-                // no romper UI por un fallo de hit-testing
                 Console.WriteLine("Map click error: " + ex.Message);
             }
         }
+
 
         // Helper robusto que intenta leer atributos de una IFeature por varias estrategias
         private object? TryGetFeatureAttribute(IFeature feature, string key)
