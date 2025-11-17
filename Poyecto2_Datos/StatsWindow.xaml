@@ -1,7 +1,7 @@
 <Window x:Class="Poyecto2_Datos.StatsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Estadísticas del Árbol" Height="520" Width="800" WindowStartupLocation="CenterOwner" Background="#FFF5F5F5" WindowState="Maximized">
+        Title="Estadísticas del Árbol" Height="520" Width="800" WindowStartupLocation="CenterOwner" Background="Black" WindowState="Maximized">
 
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -11,7 +11,7 @@
             <RowDefinition Height="8"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-        <TextBlock Text="Estadísticas" FontSize="20" FontWeight="Bold"/>
+        <TextBlock Text="Estadísticas" FontSize="20" FontWeight="Bold" Foreground="White"/>
         <Button x:Name="BtnBack"
                 Content="← Volver al Menú Principal"
                 HorizontalAlignment="Right"
@@ -19,43 +19,42 @@
                 Margin="20"
                 Padding="10,5"
                 FontWeight="Bold"
-                Background="#FFDDDDDD"
-                BorderBrush="Gray"
-                Click="BtnBack_Click"/>
+                Background="Black"
+                BorderBrush="Cyan"
+                Click="BtnBack_Click" Foreground="White"/>
      
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Stretch" Margin="0,4,0,8" >
-            <Border Padding="10" Margin="0,0,12,0" Background="#F5F7FF" BorderBrush="#D0D7FF" BorderThickness="1" CornerRadius="6" Width="240">
+            <Border Padding="10" Margin="0,0,12,0" Background="Black" BorderBrush="Cyan" BorderThickness="1" CornerRadius="6" Width="240">
                 <StackPanel>
-                    <TextBlock Text="Par más lejano" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtFarthestPair" Text="(sin datos)" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="TxtFarthestDistance" Text="" Foreground="Gray" Margin="0,6,0,0"/>
+                    <TextBlock Text="Par más lejano" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock x:Name="TxtFarthestPair" Text="(sin datos)" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="White"/>
+                    <TextBlock x:Name="TxtFarthestDistance" Text="" Foreground="White" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
 
-            <Border Padding="10" Margin="0,0,12,0" Background="#FFF8F5" BorderBrush="#FFDCC5" BorderThickness="1" CornerRadius="6" Width="240">
+            <Border Padding="10" Margin="0,0,12,0" Background="Black" BorderBrush="Red" BorderThickness="1" CornerRadius="6" Width="240">
                 <StackPanel>
-                    <TextBlock Text="Par más cercano" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtClosestPair" Text="(sin datos)" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                    <TextBlock x:Name="TxtClosestDistance" Text="" Foreground="Gray" Margin="0,6,0,0"/>
+                    <TextBlock Text="Par más cercano" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock x:Name="TxtClosestPair" Text="(sin datos)" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="White"/>
+                    <TextBlock x:Name="TxtClosestDistance" Text="" Foreground="White" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
 
-            <Border Padding="10" Margin="0,0,12,0" Background="#F6FFF5" BorderBrush="#CFEFD3" BorderThickness="1" CornerRadius="6" Width="240">
+            <Border Padding="10" Margin="0,0,12,0" Background="Black" BorderBrush="Lime" BorderThickness="1" CornerRadius="6" Width="240">
                 <StackPanel>
-                    <TextBlock Text="Distancia promedio" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtAverageDistance" Text="(sin datos)" Margin="0,6,0,0" FontSize="16" FontWeight="Bold"/>
-                    <TextBlock Text="(en kilómetros)" Foreground="Gray" FontSize="11"/>
+                    <TextBlock Text="Distancia promedio" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock x:Name="TxtAverageDistance" Text="(sin datos)" Margin="0,6,0,0" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="(en kilómetros)" Foreground="White" FontSize="11"/>
                 </StackPanel>
             </Border>
 
             <StackPanel Orientation="Vertical" HorizontalAlignment="Right" Margin="8,0,0,0">
-                <Button x:Name="BtnRecalculate" Content="Recalcular ahora" Width="140" Height="36" Click="BtnRecalculate_Click" Margin="0,0,0,6"/>
-                <Button x:Name="BtnExportCsv" Content="Exportar pares CSV" Width="140" Height="36" Click="BtnExportCsv_Click"/>
+                <Button x:Name="BtnRecalculate" Content="Recalcular ahora" Width="140" Height="35" Click="BtnRecalculate_Click" Background="Black" Foreground="White" BorderBrush="Cyan"/>
             </StackPanel>
         </StackPanel>
 
         <!-- Separador -->
-        <Separator Grid.Row="3" Margin="0,4"/>
+        <Separator Grid.Row="3" Margin="0,4" Foreground="White"/>
 
         <!-- Tabla con todas las parejas -->
         <GroupBox Grid.Row="4" Header="Todas las parejas y sus distancias" Padding="8">
@@ -75,9 +74,10 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <TextBlock Grid.Row="1" x:Name="LblCount" Text="" Margin="6,8,0,0" Foreground="Gray"/>
+                <TextBlock Grid.Row="1" x:Name="LblCount" Text="" Margin="6,8,0,0" Foreground="White"/>
             </Grid>
         </GroupBox>
     </Grid>
     
 </Window>
+
