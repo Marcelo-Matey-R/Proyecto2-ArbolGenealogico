@@ -39,6 +39,7 @@ namespace Poyecto2_Datos
         }
 
         #region Resolve TreeManager and subscription
+        // Crea una instancia de Treemanager en caso de que no exista
         private TreeManager? ResolveTreeManager()
         {
             if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
@@ -302,6 +303,7 @@ namespace Poyecto2_Datos
             var birth = DpFechaNacimiento.SelectedDate ?? DateTime.MinValue;
             var notes = TxtNotes.Text?.Trim() ?? "";
             var plus = TxtPlusCode.Text?.Trim() ?? "";
+            var calc = new CalcDistance();
 
             // VALIDACIONES: nombre no puede contener dígitos; ownId solo dígitos
             if (string.IsNullOrWhiteSpace(nombre) || nombre.Any(char.IsDigit))
@@ -312,7 +314,12 @@ namespace Poyecto2_Datos
 
             if (string.IsNullOrWhiteSpace(ownId) || !ownId.All(char.IsDigit))
             {
-                MessageBox.Show("OwnId inválido. El campo Cédula debe contener sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Cedula inválida. El campo debe contener sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (!calc.TryConvertPlusCode(plus, out double lon,out double lat))
+            {
+                MessageBox.Show("Plus Code invalido. por favor ingrese un plus code correcto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -329,6 +336,10 @@ namespace Poyecto2_Datos
                 if (age < 0 || age > 130)
                 {
                     MessageBox.Show("Edad fuera de rango (0-130).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                if (age != (DateTime.Today.Year - birth.Year)) {
+                    MessageBox.Show("La fecha de nacimiento y la edad ingresada no coinciden", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -360,7 +371,6 @@ namespace Poyecto2_Datos
                     // fallback plus code si no hay coords
                     if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
                     {
-                        var calc = new CalcDistance();
                         if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
                         {
                             persona.lon = Lon;
@@ -381,10 +391,6 @@ namespace Poyecto2_Datos
                     {
                         selectedPartnerId = selPartnerNode.familiar.id;
                     }
-
-                    // NOTA: No heredamos parentId desde la pareja. 
-                    // Mantendremos parentId según lo que seleccione el usuario en CmbParent (o null).
-                    // La alineación visual con la pareja la hace UpdateCanvasLayout(), no los datos.
 
 
                     // Agregar persona al TreeManager
@@ -442,7 +448,6 @@ namespace Poyecto2_Datos
                         // intentar convertir plus code si hay y no hay coords
                         if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
                         {
-                            var calc = new CalcDistance();
                             if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
                             {
                                 persona.lon = Lon;
@@ -787,14 +792,14 @@ namespace Poyecto2_Datos
                             Y1 = p1.Y,
                             X2 = p2.X,
                             Y2 = p2.Y,
-                            Stroke = Brushes.Gray,
+                            Stroke = Brushes.White,
                             StrokeThickness = 1.5
                         };
                         TreeCanvas.Children.Add(line);
                     }
                 }
 
-                // ---------- DIBUJAR LINEAS DE PAREJA (verde) ----------
+                // ---------- DIBUJAR LINEAS DE PAREJA (rojo) ----------
                 try
                 {
                     var partnerDrawn = new HashSet<(Guid, Guid)>();
@@ -828,26 +833,12 @@ namespace Poyecto2_Datos
                             Y1 = p1.Y,
                             X2 = p2.X,
                             Y2 = p2.Y,
-                            Stroke = Brushes.ForestGreen,
+                            Stroke = Brushes.Red,
                             StrokeThickness = 3,
-                            StrokeDashArray = new DoubleCollection() { 2, 2 },
-                            Opacity = 0.95
                         };
                         TreeCanvas.Children.Add(partnerLine);
 
-                        var midX = (p1.X + p2.X) / 2.0;
-                        var midY = (p1.Y + p2.Y) / 2.0;
-                        var lbl = new TextBlock
-                        {
-                            Text = "Pareja",
-                            Background = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
-                            Padding = new Thickness(4, 2, 4, 2),
-                            FontSize = 11
-                        };
-                        lbl.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                        Canvas.SetLeft(lbl, midX - (lbl.DesiredSize.Width / 2.0));
-                        Canvas.SetTop(lbl, midY - (lbl.DesiredSize.Height / 2.0));
-                        TreeCanvas.Children.Add(lbl);
+
                     }
                 }
                 catch (Exception exPartner)
@@ -923,8 +914,8 @@ namespace Poyecto2_Datos
             {
                 Width = NodeWidth,
                 Height = NodeHeight,
-                Background = Brushes.WhiteSmoke,
-                BorderBrush = Brushes.DarkGray,
+                Background = Brushes.Black,
+                BorderBrush = Brushes.Cyan,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(6)
@@ -1000,7 +991,7 @@ namespace Poyecto2_Datos
                     Height = NodeHeight - 12,
                     CornerRadius = new CornerRadius((NodeHeight - 12) / 2),
                     Background = Brushes.LightGray,
-                    BorderBrush = Brushes.Gray,
+                    BorderBrush = Brushes.White,
                     BorderThickness = new Thickness(1),
                     Margin = new Thickness(0, 0, 8, 0)
                 };
@@ -1026,11 +1017,13 @@ namespace Poyecto2_Datos
             {
                 Text = node.familiar?.name ?? "(sin nombre)",
                 FontWeight = FontWeights.Bold,
+                Foreground= Brushes.White,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
             var tbId = new TextBlock
             {
                 Text = node.familiar?.ownId ?? "",
+                Foreground = Brushes.White,
                 FontSize = 11,
                 Opacity = 0.8
             };
@@ -1045,7 +1038,7 @@ namespace Poyecto2_Datos
             Canvas.SetTop(rectBorder, pos.Y);
 
             // Tooltip con más datos
-            rectBorder.ToolTip = $"{node.familiar?.name}\nOwnId: {node.familiar?.ownId}\nLat/Lon: {(node.familiar?.HasCoordinates() == true ? $"{node.familiar.lat:F6}, {node.familiar.lon:F6}" : "—")}";
+            rectBorder.ToolTip = $"{node.familiar?.name}\nCedula: {node.familiar?.ownId}\nLat/Lon: {(node.familiar?.HasCoordinates() == true ? $"{node.familiar.lat:F6}, {node.familiar.lon:F6}" : "—")}";
 
             // click: cargar en formulario para editar
             rectBorder.MouseLeftButtonDown += (s, e) =>
