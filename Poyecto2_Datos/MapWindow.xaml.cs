@@ -549,6 +549,7 @@ namespace Poyecto2_Datos
                                 {
                                     var p = node.familiar;
                                     lines.Add($"{p.name} — Ced: {p.ownId} — Lat/Lon: {(p.HasCoordinates() ? $"{p.lat:F6}, {p.lon:F6}" : "—")}");
+                                    DrawDistanceLines(gid);
                                 }
                                 else
                                 {
