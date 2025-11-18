@@ -1,16 +1,15 @@
-using Microsoft.Win32;
-using System.IO;
-using System.Reflection;
-using System.Windows;
-using System.Windows.Media.Imaging;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Shapes;
 using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
+using Microsoft.Win32;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 
-namespace Poyecto2_Datos
+namespace ProyectoDatos22
 {
     public partial class AddNodeWindow : Window, IDisposable
     {
@@ -39,49 +38,16 @@ namespace Poyecto2_Datos
         }
 
         #region Resolve TreeManager and subscription
-        // Crea una instancia de Treemanager en caso de que no exista
         private TreeManager? ResolveTreeManager()
         {
-            if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
-            {
-                if (Application.Current.Properties["TreeManager"] is TreeManager tm) return tm;
-            }
-
-            var tmType = typeof(TreeManager);
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type[] types;
-                try { types = asm.GetTypes(); } catch { continue; }
-                foreach (var t in types)
-                {
-                    try
-                    {
-                        var props = t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        foreach (var p in props)
-                        {
-                            if (tmType.IsAssignableFrom(p.PropertyType))
-                            {
-                                var val = p.GetValue(null);
-                                if (val is TreeManager found) return found;
-                            }
-                        }
-
-                        var fields = t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        foreach (var f in fields)
-                        {
-                            if (tmType.IsAssignableFrom(f.FieldType))
-                            {
-                                var val = f.GetValue(null);
-                                if (val is TreeManager found) return found;
-                            }
-                        }
-                    }
-                    catch { }
-                }
-            }
-
             try
             {
+                if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
+                {
+                    return Application.Current.Properties["TreeManager"] as TreeManager;
+                }
+
+                // Crear nuevo TreeManager y guardarlo
                 var tm = Activator.CreateInstance<TreeManager>();
                 if (Application.Current?.Properties != null)
                     Application.Current.Properties["TreeManager"] = tm;
@@ -92,6 +58,7 @@ namespace Poyecto2_Datos
                 return null;
             }
         }
+
 
         private void SubscribeToTreeManager()
         {
@@ -231,6 +198,38 @@ namespace Poyecto2_Datos
             }
         }
 
+        private bool ValidateForm(out string error)
+        {
+            error = "";
+
+            var nombre = (TxtNombre.Text ?? "").Trim();
+            var ownId = (TxtCedula.Text ?? "").Trim();
+            var plus = (TxtPlusCode.Text ?? "").Trim();
+
+            if (string.IsNullOrWhiteSpace(nombre) || nombre.Any(char.IsDigit))
+            {
+                error = "Nombre inválido. No puede contener números.";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(ownId) || !ownId.All(char.IsDigit))
+            {
+                error = "Cédula inválida. Use sólo números.";
+                return false;
+            }
+
+            // Requerimiento del proyecto: coordenadas deben existir (o se debe convertir PlusCode)
+            var calc = new CalcDistance();
+            if (!calc.TryConvertPlusCode(plus, out double lon, out double lat) && (_lon == null || _lat == null))
+            {
+                error = "Coordenadas inválidas. Ingrese coordenadas o un Plus Code válido.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
         #endregion
 
         #region Photo and pluscode controls
@@ -289,6 +288,8 @@ namespace Poyecto2_Datos
                 _editingNode = null;
                 BtnSave_SetAddMode();
                 ClearFormFields();
+                LoadParentsCombo();
+                LoadPartnersCombo();
             }
             else
             {
@@ -298,102 +299,57 @@ namespace Poyecto2_Datos
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
-            var nombre = TxtNombre.Text?.Trim() ?? "";
-            var ownId = TxtCedula.Text?.Trim() ?? "";
-            var birth = DpFechaNacimiento.SelectedDate ?? DateTime.MinValue;
-            var notes = TxtNotes.Text?.Trim() ?? "";
-            var plus = TxtPlusCode.Text?.Trim() ?? "";
-            var calc = new CalcDistance();
-
-            // VALIDACIONES: nombre no puede contener dígitos; ownId solo dígitos
-            if (string.IsNullOrWhiteSpace(nombre) || nombre.Any(char.IsDigit))
+            try
             {
-                MessageBox.Show("Nombre inválido. El campo nombre no puede contener números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(ownId) || !ownId.All(char.IsDigit))
-            {
-                MessageBox.Show("Cedula inválida. El campo debe contener sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            if (!calc.TryConvertPlusCode(plus, out double lon,out double lat))
-            {
-                MessageBox.Show("Plus Code invalido. por favor ingrese un plus code correcto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // Determinar edad: preferir valor ingresado en TxtAge si existe, si no calcular desde birth
-            int age = 0;
-            var ageText = (TxtAge?.Text ?? "").Trim();
-            if (!string.IsNullOrEmpty(ageText))
-            {
-                if (!int.TryParse(ageText, out age))
+                if (!ValidateForm(out string validationError))
                 {
-                    MessageBox.Show("Edad inválida. Use sólo números.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(validationError, "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-                if (age < 0 || age > 130)
-                {
-                    MessageBox.Show("Edad fuera de rango (0-130).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-                if (age != (DateTime.Today.Year - birth.Year)) {
-                    MessageBox.Show("La fecha de nacimiento y la edad ingresada no coinciden", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-            }
-            else
-            {
-                if (birth != DateTime.MinValue)
+
+                var nombre = TxtNombre.Text.Trim();
+                var ownId = TxtCedula.Text.Trim();
+                var birth = DpFechaNacimiento.SelectedDate ?? DateTime.MinValue;
+                var plus = TxtPlusCode.Text?.Trim() ?? "";
+                var calc = new CalcDistance();
+
+                // Determinar edad
+                int age = 0;
+                var ageText = (TxtAge?.Text ?? "").Trim();
+                if (!string.IsNullOrEmpty(ageText)) int.TryParse(ageText, out age);
+                else if (birth != DateTime.MinValue)
                 {
                     var today = DateTime.Today;
                     age = today.Year - birth.Year;
                     if (birth.Date > today.AddYears(-age)) age--;
                     if (age < 0) age = 0;
                 }
-                else
-                {
-                    age = 0;
-                }
-            }
 
-            try
-            {
+                // Geocoding fallback: obtener coords desde pluscode si no fueron convertidas manualmente
+                if ((_lon == null || _lat == null) && !string.IsNullOrWhiteSpace(plus))
+                {
+                    if (calc.TryConvertPlusCode(plus, out double lon, out double lat))
+                    {
+                        _lon = lon; _lat = lat;
+                    }
+                }
+
                 if (_editingNode == null)
                 {
-                    // ---------------- MODO AÑADIR ----------------
-                    Persona persona = new Persona(Guid.NewGuid(), nombre, age, birth, _photoFilePath ?? "", plus, _lon, _lat, null, null, false)
+                    // CREAR
+                    var persona = new Persona(Guid.NewGuid(), nombre, age, birth, _photoFilePath ?? "", plus, _lon, _lat, null, null, false)
                     {
                         ownId = ownId
                     };
 
-                    // fallback plus code si no hay coords
-                    if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
-                    {
-                        if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
-                        {
-                            persona.lon = Lon;
-                            persona.lat = Lat;
-                        }
-                    }
-
-                    // parent por selección (por defecto)
                     Guid? parentId = null;
                     if (CmbParent.SelectedItem is Node selNode && selNode.familiar != null && selNode.familiar.id != Guid.Empty)
-                    {
                         parentId = selNode.familiar.id;
-                    }
 
-                    // partner seleccionado (si hay)
                     Guid? selectedPartnerId = null;
                     if (CmbPartnerSelect.SelectedItem is Node selPartnerNode && selPartnerNode.familiar != null && selPartnerNode.familiar.id != Guid.Empty)
-                    {
                         selectedPartnerId = selPartnerNode.familiar.id;
-                    }
 
-
-                    // Agregar persona al TreeManager
                     if (_treeManager == null)
                     {
                         MessageBox.Show("No se pudo resolver TreeManager.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -402,12 +358,12 @@ namespace Poyecto2_Datos
 
                     _treeManager.AddPerson(persona, parentId);
 
-                    // asignar pareja si aplicó (solo SetPartner, no ReassignParent)
                     if (selectedPartnerId.HasValue)
                     {
                         try
                         {
                             _treeManager.SetPartner(persona.id, selectedPartnerId.Value);
+                            // marcado de exclusión recursiva para pareja y descendientes:
                         }
                         catch (Exception exPartner)
                         {
@@ -416,20 +372,13 @@ namespace Poyecto2_Datos
                     }
 
                     MessageBox.Show("Persona agregada correctamente.", "OK", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                    // refrescar UI
-                    LoadParentsCombo();
-                    LoadPartnersCombo();
-                    UpdateCanvasLayout();
-                    ClearFormFields();
                 }
                 else
                 {
-                    // ---------------- MODO EDITAR ----------------
-                    var node = _editingNode;
-                    var persona = node.familiar;
+                    // EDITAR
+                    var persona = _editingNode.familiar;
+                    if (persona == null) return;
 
-                    // actualizar campos simples
                     persona.name = nombre;
                     persona.ownId = ownId;
                     persona.birthdate = birth;
@@ -437,50 +386,34 @@ namespace Poyecto2_Datos
                     persona.photoFileName = _photoFilePath ?? persona.photoFileName;
                     persona.addresPlusCode = plus;
 
-                    // actualizar coordenadas sólo si el usuario convirtió/ingresó nuevas
                     if (_lat.HasValue && _lon.HasValue)
                     {
                         persona.lon = _lon;
                         persona.lat = _lat;
                     }
-                    else
+                    else if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
                     {
-                        // intentar convertir plus code si hay y no hay coords
-                        if ((!persona.HasCoordinates() || persona.lat == null || persona.lon == null) && !string.IsNullOrWhiteSpace(plus))
+                        if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
                         {
-                            if (calc.TryConvertPlusCode(plus, out double Lon, out double Lat))
-                            {
-                                persona.lon = Lon;
-                                persona.lat = Lat;
-                            }
+                            persona.lon = Lon;
+                            persona.lat = Lat;
                         }
                     }
 
-                    // manejar cambio de padre (si el usuario escogió otro)
+                    // cambio de padre
                     Guid? newParentId = null;
                     if (CmbParent.SelectedItem is Node selNode2 && selNode2.familiar != null && selNode2.familiar.id != Guid.Empty)
-                    {
                         newParentId = selNode2.familiar.id;
-                    }
 
                     if (persona.parentId != newParentId)
                     {
-                        try
-                        {
-                            _treeManager.ReassignParent(persona.id, newParentId);
-                        }
-                        catch (Exception exReassign)
-                        {
-                            MessageBox.Show("No se pudo reasignar padre: " + exReassign.Message, "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        }
+                        try { _treeManager.ReassignParent(persona.id, newParentId); } catch (Exception exReassign) { MessageBox.Show("No se pudo reasignar padre: " + exReassign.Message, "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning); }
                     }
 
-                    // manejar pareja: sólo SetPartner (no ReassignParent) — si seleccionan "Ninguna", pasar null
+                    // pareja
                     Guid? selectedPartnerIdEdit = null;
                     if (CmbPartnerSelect.SelectedItem is Node selPartnerNodeEdit && selPartnerNodeEdit.familiar != null && selPartnerNodeEdit.familiar.id != Guid.Empty)
-                    {
                         selectedPartnerIdEdit = selPartnerNodeEdit.familiar.id;
-                    }
 
                     if (selectedPartnerIdEdit.HasValue)
                     {
@@ -493,41 +426,36 @@ namespace Poyecto2_Datos
                             try
                             {
                                 _treeManager.SetPartner(persona.id, selectedPartnerIdEdit.Value);
-                                // NOTA: NO llamamos a ReassignParent para no alterar parentId del partner
                             }
-                            catch (Exception exP)
-                            {
-                                MessageBox.Show("No se pudo asignar la pareja: " + exP.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning);
-                            }
+                            catch (Exception exP) { MessageBox.Show("No se pudo asignar la pareja: " + exP.Message, "Pareja", MessageBoxButton.OK, MessageBoxImage.Warning); }
                         }
                     }
                     else
                     {
-                        // desasignar pareja si seleccionó "(Ninguna)"
                         try { _treeManager.SetPartner(persona.id, null); } catch { }
                     }
 
-                    // recalcular distancias/estadísticas (intentar, ignorar fallos no críticos)
-                    try { _treeManager.GetEdgesWithWeights(); } catch { }
-                    try { _treeManager.ComputeAllDijkstras(); } catch { }
-                    try { _treeManager.ComputeMinMaxPairs(); } catch { }
-
-                    // refrescar UI y limpiar modo edición
-                    LoadParentsCombo();
-                    LoadPartnersCombo();
-                    UpdateCanvasLayout();
+                    MessageBox.Show("Persona editada correctamente.", "OK", MessageBoxButton.OK, MessageBoxImage.Information);
                     _editingNode = null;
                     BtnSave_SetAddMode();
-                    ClearFormFields();
-
-                    MessageBox.Show("Persona editada correctamente.", "OK", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
+
+                // recalcular y refrescar UI
+                try { _treeManager.GetEdgesWithWeights(); } catch { }
+                try { _treeManager.ComputeAllDijkstras(); } catch { }
+                try { _treeManager.ComputeMinMaxPairs(); } catch { }
+
+                LoadParentsCombo();
+                LoadPartnersCombo();
+                UpdateCanvasLayout();
+                ClearFormFields();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al guardar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
 
 
         // Cambia texto del boton guardar a modo edición
@@ -799,7 +727,7 @@ namespace Poyecto2_Datos
                     }
                 }
 
-                // ---------- DIBUJAR LINEAS DE PAREJA (rojo) ----------
+                // ---------- DIBUJAR LINEAS DE PAREJA (verde) ----------
                 try
                 {
                     var partnerDrawn = new HashSet<(Guid, Guid)>();
@@ -1017,7 +945,7 @@ namespace Poyecto2_Datos
             {
                 Text = node.familiar?.name ?? "(sin nombre)",
                 FontWeight = FontWeights.Bold,
-                Foreground= Brushes.White,
+                Foreground = Brushes.White,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
             var tbId = new TextBlock
