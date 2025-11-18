@@ -9,7 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
-namespace ProyectoDatos22
+namespace Poyecto2_Datos
 {
     public partial class AddNodeWindow : Window, IDisposable
     {
