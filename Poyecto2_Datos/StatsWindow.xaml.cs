@@ -3,7 +3,7 @@ using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 using System.Windows;
 
-namespace ProyectoDatos22
+namespace Poyecto2_Datos
 {
     public partial class StatsWindow : Window
     {
