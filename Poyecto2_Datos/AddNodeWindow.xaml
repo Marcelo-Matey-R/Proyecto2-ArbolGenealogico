@@ -32,7 +32,7 @@
              MaxLength="3"
              PreviewTextInput="TxtAge_PreviewTextInput"
              DataObject.Pasting="TxtAge_Pasting"
-             ToolTip="Ingrese la edad en años (sólo números). Si queda vacío se calculará desde la fecha de nacimiento." BorderBrush="Cyan" Foreground="White"
+             ToolTip="Ingrese la edad en años (sólo números). Si queda vacío se calculará desde la fecha de nacimiento." BorderBrush="Cyan" Foreground="Black"
              />
                     </StackPanel>
 
