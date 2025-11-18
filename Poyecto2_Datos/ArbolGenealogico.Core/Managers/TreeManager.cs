@@ -10,12 +10,6 @@ using ArbolGenealogico.Domain.Dto;
 
 namespace ArbolGenealogico.Core.Managers
 {
-    public class NodeEventArgs : EventArgs
-    {
-        public Node Node { get; }
-        public NodeEventArgs(Node node) { Node = node; }
-    }
-
     public class TreeManager
     {
         // token de sincronizacion
@@ -713,3 +707,4 @@ namespace ArbolGenealogico.Core.Managers
 
     }
 }
+
