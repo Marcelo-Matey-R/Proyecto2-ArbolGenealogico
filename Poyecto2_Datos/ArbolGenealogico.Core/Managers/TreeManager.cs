@@ -221,6 +221,11 @@ namespace ArbolGenealogico.Core.Managers
                         nodeB.DetachFromPartner(null);
                 }
 
+                if (IsAncestor(descendant: nodeA, ancestorCandidate: nodeB) ||
+                    IsAncestor(descendant: nodeB, ancestorCandidate: nodeA))
+                {
+                        throw new InvalidOperationException("Operación inválida: no se puede emparejar a un nodo con su ancestro/descendiente.");
+                }
                 // Atar A <-> B (helper en Node)
                 nodeA.AttachPartner(nodeB);
                 changed = true;
@@ -348,6 +353,38 @@ namespace ArbolGenealogico.Core.Managers
                         }
                     }
                 });
+            }
+
+            var idMap = tempNodes.ToDictionary(x => x.familiar.id, x => x);
+            foreach (var n in tempNodes)
+            {
+                if (!n.familiar.partnerId.HasValue) continue;
+            
+                var pid = n.familiar.partnerId.Value;
+                // si el partner no está en el grafo actual, ignorar (referencia externa)
+                if (!idMap.TryGetValue(pid, out var partnerNode)) continue;
+            
+                // evitar crear dos veces la misma arista (usar misma key ordenada)
+                var idA = n.familiar.id;
+                var idB = partnerNode.familiar.id;
+                (Guid, Guid) key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
+                if (average.ContainsKey(key)) continue; // ya existe (por padre-hijo u otra relación)
+            
+                // respetar excludeFromDistance
+                if (n.familiar.excludeFromDistance || partnerNode.familiar.excludeFromDistance) continue;
+            
+                // elegir peso: distancia entre coordenadas (puedes cambiar a peso fijo si lo prefieres)
+                double w = _calcDistance.Distance(n.familiar.lon, n.familiar.lat, partnerNode.familiar.lon, partnerNode.familiar.lat);
+                if (double.IsNaN(w) || double.IsInfinity(w)) continue;
+            
+                // añadir aristas bidireccionales
+                var e1p = new Edge(n, partnerNode, w);
+                var e2p = new Edge(partnerNode, n, w);
+                n.edges.Add(e1p);
+                partnerNode.edges.Add(e2p);
+            
+                if (!average.ContainsKey(key))
+                    average[key] = w;
             }
 
             // Proteger Average() contra secuencia vacía
@@ -574,3 +611,4 @@ namespace ArbolGenealogico.Core.Managers
 
     }
 }
+
