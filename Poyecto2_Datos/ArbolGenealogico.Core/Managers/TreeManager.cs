@@ -1,5 +1,7 @@
-
 using System.Globalization;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 using ArbolGenealogico.Core.Events;
@@ -8,27 +10,38 @@ using ArbolGenealogico.Domain.Dto;
 
 namespace ArbolGenealogico.Core.Managers
 {
+    public class NodeEventArgs : EventArgs
+    {
+        public Node Node { get; }
+        public NodeEventArgs(Node node) { Node = node; }
+    }
+
     public class TreeManager
     {
-        //token de sincronizacion
+        // token de sincronizacion
         private readonly object _sync = new object();
+        private int _suspendCount = 0;
+        private bool _pendingRecalc = false;
 
-        //estructura de datos internas
+        // estructura de datos internas
         private readonly Dictionary<Guid, Node> _lookup = new Dictionary<Guid, Node>();
         private readonly List<Node> _roots = new List<Node>();
         private CalcDistance _calcDistance;
 
-        //acciones para la UI
-        public event Action<Node>? nodeAdded;
+        // eventos para la UI
+        public event EventHandler<NodeEventArgs>? NodeAdded;
 
-        //el evento se define por hijo/nodo acutal, antiguo padre, nuevo padre
+        // eventos de cambios específicos
         public event EventHandler<ParentChangedEventArgs>? changeParent;
         public event EventHandler<PartnerChangedEventArgs>? changePartner;
-        public event EventHandler<Node>? NodeAdded;
         public event EventHandler? graphChanged;
 
+#if DEBUG
+        // solo para debug en compilación Debug
+        private readonly List<string> _debugPairs = new List<string>();
+#endif
 
-        //resultados
+        // resultados expuestos
         public (Persona?, Persona?) personasMaxDistance = (null, null);
         public (Persona?, Persona?) personasMinDistance = (null, null);
         public double averageDistances = 0;
@@ -74,7 +87,6 @@ namespace ArbolGenealogico.Core.Managers
             var tempLookup = new Dictionary<Guid, Node>();
             var tempRoots = new List<Node>();
 
-
             // Crear nodo por persona
             foreach (var p in people)
                 tempLookup[p.id] = new Node(p);
@@ -117,7 +129,6 @@ namespace ArbolGenealogico.Core.Managers
             if (p == null) throw new ArgumentNullException(nameof(p));
 
             Node created;
-            bool addAsRoot = false;
 
             lock (_sync)
             {
@@ -129,15 +140,14 @@ namespace ArbolGenealogico.Core.Managers
                 if (parentId == null)
                 {
                     _roots.Add(node);
-                    addAsRoot = true;
+                    node.familiar.parentId = null; // mantener consistente el estado
                 }
-
                 else
                 {
                     if (!_lookup.TryGetValue(parentId.Value, out var parentNode))
                     {
                         _roots.Add(node);
-                        addAsRoot = true;
+                        node.familiar.parentId = null; // parent no existe -> root y parentId null
                     }
                     else
                     {
@@ -150,12 +160,14 @@ namespace ArbolGenealogico.Core.Managers
 
                 created = node;
             }
-            NodeAdded?.Invoke(this, created);
+
+            NodeAdded?.Invoke(this, new NodeEventArgs(created));
 
             UpdateGraphAndDistances();
 
             return created;
         }
+
         public void SetPartner(Guid idA, Guid? idB)
         {
             bool changed = false;
@@ -168,6 +180,7 @@ namespace ArbolGenealogico.Core.Managers
                     throw new ArgumentException("Persona A no existe", nameof(idA));
 
                 oldPartnerId = nodeA.familiar.partnerId;
+
                 // Caso: desasociar A (idB == null)
                 if (!idB.HasValue)
                 {
@@ -183,53 +196,54 @@ namespace ArbolGenealogico.Core.Managers
                         newPartnerId = nodeA.familiar.partnerId; // debería ser null
                     }
                     // si no tenía pareja -> no hay cambio
-                    return;
                 }
-
-                // Caso: asociar A con B -> validamos B UNA vez
-                if (!_lookup.TryGetValue(idB.Value, out var nodeB))
-                    throw new ArgumentException("Persona B no existe", nameof(idB));
-
-                if (ReferenceEquals(nodeA, nodeB))
-                    throw new InvalidOperationException("Una persona no puede ser pareja de sí misma.");
-
-                if (nodeA.familiar.partnerId.HasValue
-                    && nodeA.familiar.partnerId.Value == nodeB.familiar.id
-                    && nodeB.familiar.partnerId.HasValue
-                    && nodeB.familiar.partnerId.Value == nodeA.familiar.id)
+                else
                 {
-                    // nada que hacer
-                    return;
-                }
+                    // Caso: asociar A con B -> validamos B UNA vez
+                    if (!_lookup.TryGetValue(idB.Value, out var nodeB))
+                        throw new ArgumentException("Persona B no existe", nameof(idB));
 
-                // Limpiar parejas previas de A (si las tiene)
-                if (nodeA.familiar.partnerId.HasValue)
-                {
-                    if (_lookup.TryGetValue(nodeA.familiar.partnerId.Value, out var aOld))
-                        nodeA.DetachFromPartner(aOld);
-                    else
-                        nodeA.DetachFromPartner(null);
-                }
+                    if (ReferenceEquals(nodeA, nodeB))
+                        throw new InvalidOperationException("Una persona no puede ser pareja de sí misma.");
 
-                // Limpiar parejas previas de B (si las tiene)
-                if (nodeB.familiar.partnerId.HasValue)
-                {
-                    if (_lookup.TryGetValue(nodeB.familiar.partnerId.Value, out var bOld))
-                        nodeB.DetachFromPartner(bOld);
+                    if (nodeA.familiar.partnerId.HasValue
+                        && nodeA.familiar.partnerId.Value == nodeB.familiar.id
+                        && nodeB.familiar.partnerId.HasValue
+                        && nodeB.familiar.partnerId.Value == nodeA.familiar.id)
+                    {
+                        // ya emparejados correctamente -> nada que hacer
+                        return;
+                    }
 
-                    else
-                        nodeB.DetachFromPartner(null);
-                }
+                    // Limpiar parejas previas de A (si las tiene)
+                    if (nodeA.familiar.partnerId.HasValue)
+                    {
+                        if (_lookup.TryGetValue(nodeA.familiar.partnerId.Value, out var aOld))
+                            nodeA.DetachFromPartner(aOld);
+                        else
+                            nodeA.DetachFromPartner(null);
+                    }
 
-                if (IsAncestor(descendant: nodeA, ancestorCandidate: nodeB) ||
-                    IsAncestor(descendant: nodeB, ancestorCandidate: nodeA))
-                {
+                    // Limpiar parejas previas de B (si las tiene)
+                    if (nodeB.familiar.partnerId.HasValue)
+                    {
+                        if (_lookup.TryGetValue(nodeB.familiar.partnerId.Value, out var bOld))
+                            nodeB.DetachFromPartner(bOld);
+                        else
+                            nodeB.DetachFromPartner(null);
+                    }
+
+                    if (IsAncestor(descendant: nodeA, ancestorCandidate: nodeB) ||
+                        IsAncestor(descendant: nodeB, ancestorCandidate: nodeA))
+                    {
                         throw new InvalidOperationException("Operación inválida: no se puede emparejar a un nodo con su ancestro/descendiente.");
+                    }
+
+                    // Atar A <-> B (helper en Node)
+                    nodeA.AttachPartner(nodeB);
+                    changed = true;
+                    newPartnerId = nodeA.familiar.partnerId;
                 }
-                // Atar A <-> B (helper en Node)
-                nodeA.AttachPartner(nodeB);
-                changed = true;
-                newPartnerId = nodeA.familiar.partnerId;
             } // fin lock
 
             if (changed)
@@ -238,6 +252,7 @@ namespace ArbolGenealogico.Core.Managers
                 changePartner?.Invoke(this, new PartnerChangedEventArgs(idA, oldPartnerId, newPartnerId));
             }
         }
+
         public Node? GetPartnerNode(Node n)
         {
             if (n?.familiar?.partnerId == null) return null;
@@ -247,7 +262,6 @@ namespace ArbolGenealogico.Core.Managers
                 return _lookup.TryGetValue(pid, out var partnerNode) ? partnerNode : null;
             }
         }
-
 
         public void ReassignParent(Guid childId, Guid? newParentId)
         {
@@ -310,13 +324,46 @@ namespace ArbolGenealogico.Core.Managers
             UpdateGraphAndDistances();
         }
 
+        private void RequestRecalc()
+        {
+            bool doRecalc = false;
+            lock (_sync)
+            {
+                if (_suspendCount > 0)
+                {
+                    _pendingRecalc = true;
+                    return;
+                }
+                // no suspendido -> ejecutar fuera del lock
+                doRecalc = true;
+            }
+            if (doRecalc) UpdateGraphAndDistances();
+        }
 
+        // Permite agrupar varias operaciones y recalcular sólo al final
+        public void BeginUpdate()
+        {
+            lock (_sync) { _suspendCount++; }
+        }
+        public void EndUpdate()
+        {
+            bool doRecalc = false;
+            lock (_sync)
+            {
+                if (_suspendCount > 0) _suspendCount--;
+                if (_suspendCount == 0 && _pendingRecalc)
+                {
+                    _pendingRecalc = false;
+                    doRecalc = true;
+                }
+            }
+            if (doRecalc) UpdateGraphAndDistances();
+        }
 
         public void GetEdgesWithWeights()
         {
             List<Node> tempNodes;
             List<Node> tempRoots;
-            Dictionary<(Guid, Guid), double> average = new Dictionary<(Guid, Guid), double>();
 
             lock (_sync)
             {
@@ -324,76 +371,69 @@ namespace ArbolGenealogico.Core.Managers
                 tempRoots = _roots.ToList();
             }
 
+            // limpiar listas de aristas
             foreach (var node in tempNodes) node.edges.Clear();
 
-            foreach (var root in tempRoots)
+            // conjunto para evitar añadir la misma arista dos veces (canonizar orden de guids)
+            var edgesAdded = new HashSet<(Guid, Guid)>();
+
+            foreach (var root in tempRoots.OrderBy(r => r.familiar.id))
             {
                 root.TransverseDFS(n =>
                 {
                     foreach (var child in n.children)
                     {
                         if (n.familiar.excludeFromDistance || child.familiar.excludeFromDistance) continue;
-                        if (n.familiar.partnerId.HasValue && n.familiar.partnerId == child.familiar.id) continue;
-
-                        double w = _calcDistance.Distance(n.familiar.lon, n.familiar.lat, child.familiar.lon, child.familiar.lat); // devuelve NaN si falta coord
+                        // no saltar por ser pareja: tratamos cada relación explícitamente,
+                        // y deduplicamos con edgesAdded para que no haya aristas repetidas
+                        double w = _calcDistance.Distance(n.familiar.lon, n.familiar.lat, child.familiar.lon, child.familiar.lat);
                         if (double.IsNaN(w) || double.IsInfinity(w)) continue;
+
+                        var idA = n.familiar.id;
+                        var idB = child.familiar.id;
+                        var key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
+
+                        if (!edgesAdded.Add(key))
+                        {
+                            // ya añadida -> no volver a crear aristas
+                            continue;
+                        }
 
                         var e1 = new Edge(n, child, w);
                         var e2 = new Edge(child, n, w);
                         n.edges.Add(e1);
                         child.edges.Add(e2);
-
-                        var idA = n.familiar.id;
-                        var idB = child.familiar.id;
-                        (Guid, Guid) key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
-
-                        if (!average.ContainsKey(key))
-                        {
-                            average[key] = w;
-                        }
                     }
                 });
             }
 
+            // partners: iterar sobre nodos en orden determinista
             var idMap = tempNodes.ToDictionary(x => x.familiar.id, x => x);
-            foreach (var n in tempNodes)
+            foreach (var n in tempNodes.OrderBy(x => x.familiar.id))
             {
                 if (!n.familiar.partnerId.HasValue) continue;
-            
                 var pid = n.familiar.partnerId.Value;
-                // si el partner no está en el grafo actual, ignorar (referencia externa)
                 if (!idMap.TryGetValue(pid, out var partnerNode)) continue;
-            
-                // evitar crear dos veces la misma arista (usar misma key ordenada)
+
+                // canonical key
                 var idA = n.familiar.id;
                 var idB = partnerNode.familiar.id;
-                (Guid, Guid) key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
-                if (average.ContainsKey(key)) continue; // ya existe (por padre-hijo u otra relación)
-            
-                // respetar excludeFromDistance
+                var key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
+
+                // si ya se añadió esa arista (parent-child o partner previo), saltamos
+                if (!edgesAdded.Add(key)) continue;
+
                 if (n.familiar.excludeFromDistance || partnerNode.familiar.excludeFromDistance) continue;
-            
-                // elegir peso: distancia entre coordenadas (puedes cambiar a peso fijo si lo prefieres)
+
                 double w = _calcDistance.Distance(n.familiar.lon, n.familiar.lat, partnerNode.familiar.lon, partnerNode.familiar.lat);
                 if (double.IsNaN(w) || double.IsInfinity(w)) continue;
-            
-                // añadir aristas bidireccionales
+
                 var e1p = new Edge(n, partnerNode, w);
                 var e2p = new Edge(partnerNode, n, w);
                 n.edges.Add(e1p);
                 partnerNode.edges.Add(e2p);
-            
-                if (!average.ContainsKey(key))
-                    average[key] = w;
             }
-
-            // Proteger Average() contra secuencia vacía
-            if (average.Count > 0)
-                averageDistances = average.Values.Average();
-            else
-                averageDistances = 0.0;
         }
-
 
         private bool IsAncestor(Node descendant, Node ancestorCandidate)
         {
@@ -408,7 +448,10 @@ namespace ArbolGenealogico.Core.Managers
 
         public Dictionary<Node, double> Dijkstra(Node? source)
         {
-            var dist = _lookup.Values.ToDictionary(x => x, x => double.PositiveInfinity);
+            List<Node> snapshot;
+            lock (_sync) { snapshot = _lookup.Values.ToList(); }
+
+            var dist = snapshot.ToDictionary(x => x, x => double.PositiveInfinity);
 
             if (source == null) return dist;
 
@@ -452,16 +495,69 @@ namespace ArbolGenealogico.Core.Managers
                 n.distances = Dijkstra(n);
         }
 
+        private void ComputeAverageShortestPathDistance()
+        {
+            double sum = 0.0;
+            long count = 0;
+
+            List<Node> nodes;
+            lock (_sync)
+            {
+                nodes = _lookup.Values.ToList();
+            }
+
+            // usamos un HashSet de pares canónicos para garantizar que contamos cada pareja unordered una sola vez
+            var counted = new HashSet<(Guid, Guid)>();
+
+            foreach (var src in nodes)
+            {
+                foreach (var kv in src.distances)
+                {
+                    var dst = kv.Key;
+                    var d = kv.Value;
+
+                    if (double.IsInfinity(d) || double.IsNaN(d)) continue;
+                    if (src == dst || d == 0) continue; // saltar identidad
+
+                    // canonical key (minId, maxId)
+                    var idA = src.familiar.id;
+                    var idB = dst.familiar.id;
+                    var key = idA.CompareTo(idB) <= 0 ? (idA, idB) : (idB, idA);
+
+                    // si ya contamos este par, lo ignoramos
+                    if (!counted.Add(key)) continue;
+
+                    // sumar primero y luego registrar la traza (evita "suma desfasada")
+                    sum += d;
+                    count++;
+
+#if DEBUG
+                    lock (_sync)
+                    {
+                        _debugPairs.Add($"{src.familiar.name} <-> {dst.familiar.name} = {d}\nla suma es de = {sum} y  es el numero {count}\n");
+                    }
+#endif
+                }
+            }
+
+            averageDistances = (count > 0) ? (sum / count) : 0.0;
+        }
+
         private void UpdateGraphAndDistances()
         {
+            //Console.WriteLine($"UpdateGraphAndDistances IN({DateTime.UtcNow:HH:mm:ss.fff}) - Thread {Thread.CurrentThread.ManagedThreadId}");
+
             GetEdgesWithWeights();
 
             ComputeAllDijkstras();
+
+            ComputeAverageShortestPathDistance();
 
             ComputeMinMaxPairs();
 
             graphChanged?.Invoke(this, EventArgs.Empty);
         }
+
         public void ComputeMinMaxPairs()
         {
             personasMaxDistance = (null, null);
@@ -499,11 +595,14 @@ namespace ArbolGenealogico.Core.Managers
             }
         }
 
-        //para debug y pruebas
+        // para debug y pruebas
         public void PrintEdges()
         {
+            List<Node> nodes;
+            lock (_sync) nodes = _lookup.Values.ToList();
+
             Console.WriteLine("Aristas (por nodo):");
-            foreach (var n in _lookup.Values)
+            foreach (var n in nodes)
             {
                 Console.WriteLine($" Nodo {n.familiar.name}:");
                 foreach (var e in n.edges)
@@ -513,8 +612,11 @@ namespace ArbolGenealogico.Core.Managers
 
         public void PrintDistanceMatrix()
         {
+            List<Node> nodes;
+            lock (_sync) nodes = _lookup.Values.ToList();
+
             Console.WriteLine("\nMatriz de distancias (metros):");
-            foreach (var src in _lookup.Values)
+            foreach (var src in nodes)
             {
                 Console.WriteLine($" Desde {src.familiar.name}:");
                 foreach (var kv in src.distances)
@@ -526,6 +628,7 @@ namespace ArbolGenealogico.Core.Managers
                 }
             }
         }
+
         public IEnumerable<PersonDto> ExportToDto(PersonMapper? mapper = null)
         {
             var m = mapper ?? new PersonMapper();
@@ -534,7 +637,6 @@ namespace ArbolGenealogico.Core.Managers
                 // materializar para evitar problemas de concurrencia
                 return _lookup.Values.Select(n => m.ToDto(n.familiar)).ToList();
             }
-
         }
 
         public void ImportFromDto(IEnumerable<PersonDto> dtos, PersonMapper? mapper = null)
@@ -611,4 +713,3 @@ namespace ArbolGenealogico.Core.Managers
 
     }
 }
-
