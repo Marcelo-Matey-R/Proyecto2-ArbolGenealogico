@@ -1,14 +1,9 @@
-using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
 using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
+using ArbolGenealogico.Infraestructure.Services;
+using System.Windows;
 
-namespace Poyecto2_Datos
+namespace ProyectoDatos22
 {
     public partial class StatsWindow : Window
     {
@@ -25,16 +20,16 @@ namespace Poyecto2_Datos
             RefreshAll();
         }
 
+        #region Resolve TreeManager
         private TreeManager? ResolveTreeManager()
         {
-            if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
-            {
-                if (Application.Current.Properties["TreeManager"] is TreeManager tm) return tm;
-            }
-
-            // fallback: intentar crear uno (esto mantendrá consistencia con AddNodeWindow)
             try
             {
+                if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
+                {
+                    return Application.Current.Properties["TreeManager"] as TreeManager;
+                }
+
                 var tm = Activator.CreateInstance<TreeManager>();
                 if (Application.Current?.Properties != null)
                     Application.Current.Properties["TreeManager"] = tm;
@@ -45,91 +40,83 @@ namespace Poyecto2_Datos
                 return null;
             }
         }
+        #endregion
 
         private void TreeManager_graphChanged(object? sender, EventArgs e)
         {
             Dispatcher.Invoke(() => RefreshAll());
         }
 
+        /// <summary>
+        /// Punto central para refrescar toda la UI de estadísticas.
+        /// Hace recalculos si es necesario y obtiene la lista de pares excluyendo
+        /// personas marcadas con excludeFromDistance.
+        /// </summary>
         private void RefreshAll()
         {
             try
             {
                 if (_treeManager == null)
                 {
-                    TxtFarthestPair.Text = "(TreeManager no disponible)";
-                    TxtClosestPair.Text = "(TreeManager no disponible)";
-                    TxtAverageDistance.Text = "(TreeManager no disponible)";
-                    DgPairs.ItemsSource = null;
-                    LblCount.Text = "";
+                    SetNoTreeManagerUI();
                     return;
                 }
 
-                // Asegurarnos de que grafo/dists estén actualizados
-                // (TreeManager normalmente actualiza en AddPerson / ReassignParent)
-                // pero permitimos recalcular para seguridad:
-                try { _treeManager.GetEdgesWithWeights(); } catch { }
-                try { _treeManager.ComputeAllDijkstras(); } catch { }
-                try { _treeManager.ComputeMinMaxPairs(); } catch { }
+                // Asegurar que las estructuras de distancia están actualizadas
+                RecalculateGraphIfNeeded();
 
-                // 1) Par más lejano y distancia
-                // 1) Par más lejano y distancia (usar GetSafeDistance para parejas)
-                var far = _treeManager.personasMaxDistance;
-                if (far.Item1 != null && far.Item2 != null)
+                // Obtener personas *incluidas* (filtradas)
+                var includedNodes = GetIncludedNodes();
+                var includedPersonas = includedNodes.Select(n => n.familiar).Where(p => p != null).Cast<Persona>().ToList();
+
+                // 1) Par más lejano y distancia (calculado entre personas incluidas)
+                if (includedPersonas.Count >= 2)
                 {
-                    TxtFarthestPair.Text = $"{far.Item1.name} ↔ {far.Item2.name}";
-                    var dFar = GetSafeDistance(far.Item1, far.Item2);
-                    if (!double.IsNaN(dFar) && !double.IsInfinity(dFar))
+                    var farPair = ComputeExtremePair(includedPersonas, findMax: true);
+                    if (farPair != null)
                     {
-                        TxtFarthestDistance.Text = $"{dFar:F3} km ({KmToMeters(dFar):F0} m)";
+                        TxtFarthestPair.Text = $"{farPair.Item1.name} ↔ {farPair.Item2.name}";
+                        var dFar = GetSafeDistance(farPair.Item1, farPair.Item2);
+                        TxtFarthestDistance.Text = (!double.IsNaN(dFar) && !double.IsInfinity(dFar))
+                            ? $"{dFar:F3} km ({KmToMeters(dFar):F0} m)"
+                            : "(sin datos)";
                     }
                     else
                     {
-                        TxtFarthestDistance.Text = "(sin datos)";
+                        TxtFarthestPair.Text = "(sin datos)";
+                        TxtFarthestDistance.Text = "";
+                    }
+
+                    var closePair = ComputeExtremePair(includedPersonas, findMax: false);
+                    if (closePair != null)
+                    {
+                        TxtClosestPair.Text = $"{closePair.Item1.name} ↔ {closePair.Item2.name}";
+                        var dClose = GetSafeDistance(closePair.Item1, closePair.Item2);
+                        TxtClosestDistance.Text = (!double.IsNaN(dClose) && !double.IsInfinity(dClose))
+                            ? $"{dClose:F3} km ({KmToMeters(dClose):F0} m)"
+                            : "(sin datos)";
+                    }
+                    else
+                    {
+                        TxtClosestPair.Text = "(sin datos)";
+                        TxtClosestDistance.Text = "";
                     }
                 }
                 else
                 {
                     TxtFarthestPair.Text = "(sin datos)";
                     TxtFarthestDistance.Text = "";
-                }
-
-                // 2) Par más cercano y distancia (usar GetSafeDistance)
-                var close = _treeManager.personasMinDistance;
-                if (close.Item1 != null && close.Item2 != null)
-                {
-                    TxtClosestPair.Text = $"{close.Item1.name} ↔ {close.Item2.name}";
-                    var dClose = GetSafeDistance(close.Item1, close.Item2);
-                    if (!double.IsNaN(dClose) && !double.IsInfinity(dClose))
-                    {
-                        TxtClosestDistance.Text = $"{dClose:F3} km ({KmToMeters(dClose):F0} m)";
-                    }
-                    else
-                    {
-                        TxtClosestDistance.Text = "(sin datos)";
-                    }
-                }
-                else
-                {
                     TxtClosestPair.Text = "(sin datos)";
                     TxtClosestDistance.Text = "";
                 }
 
+                // 3) Distancia promedio (sobre pares incluidos)
+                var avg = ComputeAverageDistance(includedPersonas);
+                TxtAverageDistance.Text = (!double.IsNaN(avg) && !double.IsInfinity(avg)) ? $"{avg:F3} km" : "(sin datos)";
 
-                // 3) Distancia promedio (TreeManager.averageDistances)
-                var avg = _treeManager.averageDistances;
-                if (!double.IsNaN(avg) && !double.IsInfinity(avg))
-                {
-                    TxtAverageDistance.Text = $"{avg:F3} km";
-                }
-                else
-                {
-                    TxtAverageDistance.Text = "(sin datos)";
-                }
-
-                // 4) Llenar DataGrid con todas las parejas (unique unordered pairs)
-                var pairs = BuildAllPairsList();
-                DgPairs.ItemsSource = pairs.OrderByDescending(p => p.DistanceKm).ToList();
+                // 4) Llenar DataGrid con las parejas (omitiendo excluidos)
+                var pairs = BuildAllPairsList(includedNodes);
+                DgPairs.ItemsSource = pairs.OrderByDescending(p => p.DistanceNumeric).ThenByDescending(p => p.DistanceKm).ToList();
                 LblCount.Text = $"Pares listados: {pairs.Count}";
             }
             catch (Exception ex)
@@ -138,43 +125,49 @@ namespace Poyecto2_Datos
             }
         }
 
-        // Helper: obtiene distancia entre dos Personas usando la información existente en TreeManager (si ya la calculó),
-        // sino intenta calcular directamente por sus coordenadas.
+        private void SetNoTreeManagerUI()
+        {
+            TxtFarthestPair.Text = "(TreeManager no disponible)";
+            TxtClosestPair.Text = "(TreeManager no disponible)";
+            TxtAverageDistance.Text = "(TreeManager no disponible)";
+            DgPairs.ItemsSource = null;
+            LblCount.Text = "";
+        }
+
+        #region Distance helpers
+
+        // Intenta usar distancias precomputadas (Dijkstra) si existen en los nodos,
+        // sino calcula geodésicamente con CalcDistance (devuelve km).
         private double GetDistanceBetween(Persona? a, Persona? b)
         {
             if (a == null || b == null) return double.NaN;
 
-            // Intentar usar las distancias precomputadas (Dijkstra) si están presentes
             try
             {
                 var nodeA = _treeManager?.FindNodeById(a.id);
                 var nodeB = _treeManager?.FindNodeById(b.id);
                 if (nodeA != null && nodeB != null && nodeA.distances != null && nodeA.distances.ContainsKey(nodeB))
-                {
                     return nodeA.distances[nodeB];
-                }
             }
             catch { /* ignorar y calcular directo */ }
 
-            // fallback: calcular geodésica usando CalcDistance (devuelve km)
             try
             {
-                var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
-                var d = calc.Distance(a.lon, a.lat, b.lon, b.lat);
-                return d;
+                var calc = new CalcDistance();
+                return calc.Distance(a.lon, a.lat, b.lon, b.lat);
             }
             catch
             {
                 return double.NaN;
             }
         }
+
         // Devuelve distancia (km) pero si es NaN/Infinity y las dos personas son pareja -> devuelve 0.0
         private double GetSafeDistance(Persona? a, Persona? b)
         {
             var d = GetDistanceBetween(a, b);
             if (!double.IsNaN(d) && !double.IsInfinity(d)) return d;
 
-            // Si no hay distancia válida, pero son pareja entre sí -> devolver 0
             try
             {
                 if (a != null && b != null)
@@ -186,44 +179,133 @@ namespace Poyecto2_Datos
             }
             catch { /* ignore */ }
 
-            return d; // puede ser NaN
+            return d;
         }
 
         private double KmToMeters(double km) => km * 1000.0;
 
-        private List<PairDistance> BuildAllPairsList()
+        #endregion
+
+        #region Node inclusion/filtering
+
+        /// <summary>
+        /// Recolecta y devuelve todos los nodos del árbol.
+        /// </summary>
+        private List<Node> GetIncludedNodes()
         {
-            var list = new List<PairDistance>();
+            var list = new List<Node>();
             if (_treeManager == null) return list;
 
-            // Recolectar nodos
-            var nodes = _treeManager.Roots.SelectMany(r =>
+            foreach (var root in _treeManager.Roots)
             {
-                var temp = new List<Node>();
-                r.TransverseDFS(n => temp.Add(n));
-                return temp;
-            }).Distinct().ToList();
+                root.TransverseDFS(n =>
+                {
+                    if (n != null && n.familiar != null)
+                        list.Add(n);
+                });
+            }
 
-            // Uso de diccionario para evitar duplicados (pairs unordered)
+            return list.Distinct().ToList();
+        }
+
+        #endregion
+
+        #region Compute extremes & averages (based on included personas)
+
+        // Devuelve el par (a,b) con distancia máxima o mínima entre una lista de personas (null si no hay)
+        private Tuple<Persona, Persona>? ComputeExtremePair(List<Persona> personas, bool findMax)
+        {
+            if (personas == null || personas.Count < 2) return null;
+
+            double bestValue = findMax ? double.MinValue : double.MaxValue;
+            Tuple<Persona, Persona>? bestPair = null;
+
+            for (int i = 0; i < personas.Count; i++)
+            {
+                for (int j = i + 1; j < personas.Count; j++)
+                {
+                    var a = personas[i];
+                    var b = personas[j];
+                    var d = GetSafeDistance(a, b);
+
+                    if (double.IsNaN(d)) continue;
+
+                    if (findMax)
+                    {
+                        if (d > bestValue)
+                        {
+                            bestValue = d;
+                            bestPair = Tuple.Create(a, b);
+                        }
+                    }
+                    else
+                    {
+                        if (d < bestValue)
+                        {
+                            bestValue = d;
+                            bestPair = Tuple.Create(a, b);
+                        }
+                    }
+                }
+            }
+
+            return bestPair;
+        }
+
+        // Promedio sobre todas las parejas (excluye NaN)
+        private double ComputeAverageDistance(List<Persona> personas)
+        {
+            if (personas == null || personas.Count < 2) return double.NaN;
+
+            double sum = 0.0;
+            int count = 0;
+            for (int i = 0; i < personas.Count; i++)
+            {
+                for (int j = i + 1; j < personas.Count; j++)
+                {
+                    var d = GetSafeDistance(personas[i], personas[j]);
+                    if (!double.IsNaN(d) && !double.IsInfinity(d))
+                    {
+                        sum += d;
+                        count++;
+                    }
+                }
+            }
+
+            return count > 0 ? (sum / count) : double.NaN;
+        }
+
+        #endregion
+
+        #region Pairs list (DataGrid)
+
+        /// <summary>
+        /// Construye la lista de pares para el DataGrid usando únicamente nodos incluidos.
+        /// Devuelve objetos DTO que contienen también la distancia numérica para ordenamiento.
+        /// </summary>
+        private List<PairDistanceDto> BuildAllPairsList(List<Node> includedNodes)
+        {
+            var list = new List<PairDistanceDto>();
+            if (includedNodes == null || includedNodes.Count < 2) return list;
+
+            // Usar HashSet para evitar duplicados unordered
             var seen = new HashSet<(Guid, Guid)>();
 
-            for (int i = 0; i < nodes.Count; i++)
+            for (int i = 0; i < includedNodes.Count; i++)
             {
-                for (int j = i + 1; j < nodes.Count; j++)
+                for (int j = i + 1; j < includedNodes.Count; j++)
                 {
-                    var a = nodes[i].familiar;
-                    var b = nodes[j].familiar;
+                    var a = includedNodes[i].familiar;
+                    var b = includedNodes[j].familiar;
                     if (a == null || b == null) continue;
+
 
                     var key = a.id.CompareTo(b.id) <= 0 ? (a.id, b.id) : (b.id, a.id);
                     if (seen.Contains(key)) continue;
                     seen.Add(key);
 
-                    // Usar GetSafeDistance que devuelve 0 para parejas sin distancia válida
                     var d = GetSafeDistance(a, b);
-
-                    string kmStr;
-                    string mStr;
+                    string kmStr, mStr;
                     if (!double.IsNaN(d) && !double.IsInfinity(d))
                     {
                         kmStr = d.ToString("F6");
@@ -235,20 +317,21 @@ namespace Poyecto2_Datos
                         mStr = "(n/d)";
                     }
 
-                    var entry = new PairDistance
+                    list.Add(new PairDistanceDto
                     {
                         PersonA = a.name,
                         PersonB = b.name,
                         DistanceKm = kmStr,
-                        DistanceMeters = mStr
-                    };
-                    list.Add(entry);
+                        DistanceMeters = mStr,
+                        DistanceNumeric = (!double.IsNaN(d) && !double.IsInfinity(d)) ? d : double.NaN
+                    });
                 }
             }
 
             return list;
         }
 
+        #endregion
 
         private void BtnRecalculate_Click(object sender, RoutedEventArgs e)
         {
@@ -265,9 +348,9 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al recalcular: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
         private void BtnBack_Click(object sender, RoutedEventArgs e)
         {
-            // Buscar si hay una instancia abierta del MainWindow
             foreach (Window w in Application.Current.Windows)
             {
                 if (w is MainWindow main)
@@ -278,7 +361,6 @@ namespace Poyecto2_Datos
                 }
             }
 
-            // Si no está abierta, crear una nueva instancia
             var newMain = new MainWindow();
             newMain.Show();
             this.Close();
@@ -291,14 +373,27 @@ namespace Poyecto2_Datos
                 _treeManager.graphChanged -= TreeManager_graphChanged;
         }
 
-        // DTO para datagrid
-        private class PairDistance
+        #region DTO
+        private class PairDistanceDto
         {
             public string PersonA { get; set; } = "";
             public string PersonB { get; set; } = "";
             public string DistanceKm { get; set; } = "";
             public string DistanceMeters { get; set; } = "";
+            // Distancia numérica para ordenar/filtrar internamente
+            public double DistanceNumeric { get; set; } = double.NaN;
         }
+        #endregion
+
+        #region Utilities
+
+        private void RecalculateGraphIfNeeded()
+        {
+            try { _treeManager?.GetEdgesWithWeights(); } catch { }
+            try { _treeManager?.ComputeAllDijkstras(); } catch { }
+            try { _treeManager?.ComputeMinMaxPairs(); } catch { }
+        }
+
+        #endregion
     }
 }
-
