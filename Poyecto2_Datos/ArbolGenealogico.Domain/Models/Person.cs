@@ -6,6 +6,7 @@ namespace ArbolGenealogico.Domain.Models
 {
     public class Persona : NotifyBase
     {
+        #region constructores
         public Persona()
         {
             this.id = Guid.NewGuid();
@@ -13,7 +14,7 @@ namespace ArbolGenealogico.Domain.Models
         }
 
         public Persona(string id, string Name, int Age, DateTime BirthDate, string photo = "",
-        string Adress = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
+        string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
         {
             this.id = Guid.NewGuid();
             this.ownId = id;
@@ -21,7 +22,7 @@ namespace ArbolGenealogico.Domain.Models
             this.age = Age;
             this.birthdate = BirthDate;
             this.photoFileName = photo ?? "";
-            this.addresPlusCode = Adress;
+            this.addresPlusCode = Addres;
             this.lon = Lon;
             this.lat = Lat;
             this.parentId = ParentId;
@@ -29,20 +30,24 @@ namespace ArbolGenealogico.Domain.Models
             this.excludeFromDistance = Exclude;
         }
         public Persona(Guid id, string Name, int Age, DateTime BirthDate, string photo = "",
-        string Adress = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
+        string Addres = "", double? Lon = null, double? Lat = null, Guid? ParentId = null, Guid? PartnerId = null, bool Exclude = false)
         {
             this.id = id;
             this.name = Name;
             this.age = Age;
             this.birthdate = BirthDate;
             this.photoFileName = photo ?? "";
-            this.addresPlusCode = Adress;
+            this.addresPlusCode = Addres;
             this.lon = Lon;
             this.lat = Lat;
             this.parentId = ParentId;
             this.partnerId = PartnerId;
             this.excludeFromDistance = Exclude;
         }
+        #endregion
+
+
+        #region atributos, get and set
         [JsonInclude]
         public Guid id { get; private set; }
         private string _ownId = "";
@@ -96,11 +101,11 @@ namespace ArbolGenealogico.Domain.Models
             set => SetProperty(ref _urlImage, value);
         }
 
-        private string _addressPlusCode = "";
+        private string _addresPlusCode = "";
         public string addresPlusCode
         {
-            get => _addressPlusCode;
-            set => SetProperty(ref _addressPlusCode, value);
+            get => _addresPlusCode;
+            set => SetProperty(ref _addresPlusCode, value);
         }
 
         private double? _lon;
@@ -116,7 +121,9 @@ namespace ArbolGenealogico.Domain.Models
             get => _lat;
             set =>  SetProperty(ref _lat, value); 
         }
+        #endregion
 
+        #region Helpers
         public int CalcAge()
         {
             var today = DateTime.Today;
@@ -145,6 +152,6 @@ namespace ArbolGenealogico.Domain.Models
 
         public override string ToString() => $"{name} (id={ownId})";
     }
-
+    #endregion
 
 }
