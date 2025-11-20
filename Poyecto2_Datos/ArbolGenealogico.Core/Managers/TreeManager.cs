@@ -5,7 +5,6 @@ using System.Threading;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 using ArbolGenealogico.Core.Events;
-using ArbolGenealogico.Core.Mappers;
 using ArbolGenealogico.Domain.Dto;
 
 namespace ArbolGenealogico.Core.Managers
@@ -363,92 +362,6 @@ namespace ArbolGenealogico.Core.Managers
 
         #endregion
 
-        #region Export/Import / Utilidades públicas
-
-        public IEnumerable<PersonDto> ExportToDto(PersonMapper? mapper = null)
-        {
-            var m = mapper ?? new PersonMapper();
-            lock (_sync)
-            {
-                // materializar para evitar problemas de concurrencia
-                return _lookup.Values.Select(n => m.ToDto(n.familiar)).ToList();
-            }
-        }
-
-        public void ImportFromDto(IEnumerable<PersonDto> dtos, PersonMapper? mapper = null)
-        {
-            if (dtos == null) throw new ArgumentNullException(nameof(dtos));
-            var list = dtos.ToList();
-            var m = mapper ?? new PersonMapper();
-
-            // 1) crear nodos temporales (sin relaciones)
-            var tempLookup = new Dictionary<Guid, Node>(list.Count);
-            foreach (var d in list)
-            {
-                var persona = m.FromDto(d);
-                var node = new Node(persona);
-                tempLookup[persona.id] = node;
-            }
-
-            // 2) enlazar padres (si el parent está presente), o marcar como root
-            var tempRoots = new List<Node>();
-            foreach (var node in tempLookup.Values)
-            {
-                var parentId = node.familiar.parentId;
-                if (!parentId.HasValue)
-                {
-                    tempRoots.Add(node);
-                    continue;
-                }
-                if (tempLookup.TryGetValue(parentId.Value, out var parentNode))
-                {
-                    parentNode.AddChild(node);
-                }
-                else
-                {
-                    // parent no presente en DTOs => considerar como root (policy elegida)
-                    tempRoots.Add(node);
-                }
-            }
-
-            // 3) enlazar parejas (hacerlo después para asegurar existencia de nodos)
-            var paired = new HashSet<Guid>();
-            foreach (var node in tempLookup.Values)
-            {
-                var pid = node.familiar.partnerId;
-                if (!pid.HasValue) continue;
-                if (paired.Contains(node.familiar.id)) continue;
-
-                if (tempLookup.TryGetValue(pid.Value, out var partnerNode))
-                {
-                    // Solo attach si no están ya emparejados correctamente
-                    if (!(node.familiar.partnerId.HasValue &&
-                        partnerNode.familiar.partnerId.HasValue &&
-                        node.familiar.partnerId.Value == partnerNode.familiar.id &&
-                        partnerNode.familiar.partnerId.Value == node.familiar.id))
-                    {
-                        node.AttachPartner(partnerNode);
-                    }
-                    paired.Add(node.familiar.id);
-                    paired.Add(partnerNode.familiar.id);
-                }
-                // si el partner no está en tempLookup dejamos el partnerId tal cual (referencia externa)
-            }
-
-            // 4) swap atómico en el manager
-            lock (_sync)
-            {
-                _lookup.Clear();
-                _roots.Clear();
-                foreach (var kv in tempLookup) _lookup[kv.Key] = kv.Value;
-                _roots.AddRange(tempRoots);
-            }
-
-            UpdateGraphAndDistances();
-        }
-
-        #endregion
-
         #region Cálculos de grafo / rutas y distancias
 
         public void GetEdgesWithWeights()
@@ -575,7 +488,7 @@ namespace ArbolGenealogico.Core.Managers
                 n.distances = Dijkstra(n);
         }
 
-        private void ComputeAverageShortestPathDistance()
+        public void ComputeAverageShortestPathDistance()
         {
             double sum = 0.0;
             long count = 0;
@@ -588,6 +501,7 @@ namespace ArbolGenealogico.Core.Managers
 
             // usamos un HashSet de pares canónicos para garantizar que contamos cada pareja unordered una sola vez
             var counted = new HashSet<(Guid, Guid)>();
+            var countedDistance = new HashSet<double>();
 
             foreach (var src in nodes)
             {
@@ -597,8 +511,7 @@ namespace ArbolGenealogico.Core.Managers
                     var d = kv.Value;
 
                     if (double.IsInfinity(d) || double.IsNaN(d)) continue;
-                    if (src == dst || d == 0) continue; // saltar identidad
-
+                    if (src == dst) continue; // saltar identidad
                     // canonical key (minId, maxId)
                     var idA = src.familiar.id;
                     var idB = dst.familiar.id;
