@@ -10,8 +10,12 @@ using ArbolGenealogico.Domain.Dto;
 
 namespace ArbolGenealogico.Core.Managers
 {
+    
+
     public class TreeManager
     {
+        #region Fields (sincronización y datos internos)
+
         // token de sincronizacion
         private readonly object _sync = new object();
         private int _suspendCount = 0;
@@ -22,6 +26,15 @@ namespace ArbolGenealogico.Core.Managers
         private readonly List<Node> _roots = new List<Node>();
         private CalcDistance _calcDistance;
 
+#if DEBUG
+        // solo para debug en compilación Debug
+        private readonly List<string> _debugPairs = new List<string>();
+#endif
+
+        #endregion
+
+        #region Eventos
+
         // eventos para la UI
         public event EventHandler<NodeEventArgs>? NodeAdded;
 
@@ -30,15 +43,17 @@ namespace ArbolGenealogico.Core.Managers
         public event EventHandler<PartnerChangedEventArgs>? changePartner;
         public event EventHandler? graphChanged;
 
-#if DEBUG
-        // solo para debug en compilación Debug
-        private readonly List<string> _debugPairs = new List<string>();
-#endif
+        #endregion
+
+        #region Resultados expuestos / Propiedades
 
         // resultados expuestos
         public (Persona?, Persona?) personasMaxDistance = (null, null);
+        public double? maxDistance = null;
         public (Persona?, Persona?) personasMinDistance = (null, null);
+        public double? minDistance = null;
         public double averageDistances = 0;
+
 
         public IReadOnlyCollection<Node> Roots
         {
@@ -48,10 +63,18 @@ namespace ArbolGenealogico.Core.Managers
             }
         }
 
+        #endregion
+
+        #region Constructor
+
         public TreeManager()
         {
             _calcDistance = new CalcDistance();
         }
+
+        #endregion
+
+        #region Operaciones de búsqueda / consulta (públicas)
 
         public Node? FindNodeById(Guid id)
         {
@@ -318,27 +341,11 @@ namespace ArbolGenealogico.Core.Managers
             UpdateGraphAndDistances();
         }
 
-        private void RequestRecalc()
-        {
-            bool doRecalc = false;
-            lock (_sync)
-            {
-                if (_suspendCount > 0)
-                {
-                    _pendingRecalc = true;
-                    return;
-                }
-                // no suspendido -> ejecutar fuera del lock
-                doRecalc = true;
-            }
-            if (doRecalc) UpdateGraphAndDistances();
-        }
-
-        // Permite agrupar varias operaciones y recalcular sólo al final
         public void BeginUpdate()
         {
             lock (_sync) { _suspendCount++; }
         }
+
         public void EndUpdate()
         {
             bool doRecalc = false;
@@ -353,6 +360,96 @@ namespace ArbolGenealogico.Core.Managers
             }
             if (doRecalc) UpdateGraphAndDistances();
         }
+
+        #endregion
+
+        #region Export/Import / Utilidades públicas
+
+        public IEnumerable<PersonDto> ExportToDto(PersonMapper? mapper = null)
+        {
+            var m = mapper ?? new PersonMapper();
+            lock (_sync)
+            {
+                // materializar para evitar problemas de concurrencia
+                return _lookup.Values.Select(n => m.ToDto(n.familiar)).ToList();
+            }
+        }
+
+        public void ImportFromDto(IEnumerable<PersonDto> dtos, PersonMapper? mapper = null)
+        {
+            if (dtos == null) throw new ArgumentNullException(nameof(dtos));
+            var list = dtos.ToList();
+            var m = mapper ?? new PersonMapper();
+
+            // 1) crear nodos temporales (sin relaciones)
+            var tempLookup = new Dictionary<Guid, Node>(list.Count);
+            foreach (var d in list)
+            {
+                var persona = m.FromDto(d);
+                var node = new Node(persona);
+                tempLookup[persona.id] = node;
+            }
+
+            // 2) enlazar padres (si el parent está presente), o marcar como root
+            var tempRoots = new List<Node>();
+            foreach (var node in tempLookup.Values)
+            {
+                var parentId = node.familiar.parentId;
+                if (!parentId.HasValue)
+                {
+                    tempRoots.Add(node);
+                    continue;
+                }
+                if (tempLookup.TryGetValue(parentId.Value, out var parentNode))
+                {
+                    parentNode.AddChild(node);
+                }
+                else
+                {
+                    // parent no presente en DTOs => considerar como root (policy elegida)
+                    tempRoots.Add(node);
+                }
+            }
+
+            // 3) enlazar parejas (hacerlo después para asegurar existencia de nodos)
+            var paired = new HashSet<Guid>();
+            foreach (var node in tempLookup.Values)
+            {
+                var pid = node.familiar.partnerId;
+                if (!pid.HasValue) continue;
+                if (paired.Contains(node.familiar.id)) continue;
+
+                if (tempLookup.TryGetValue(pid.Value, out var partnerNode))
+                {
+                    // Solo attach si no están ya emparejados correctamente
+                    if (!(node.familiar.partnerId.HasValue &&
+                        partnerNode.familiar.partnerId.HasValue &&
+                        node.familiar.partnerId.Value == partnerNode.familiar.id &&
+                        partnerNode.familiar.partnerId.Value == node.familiar.id))
+                    {
+                        node.AttachPartner(partnerNode);
+                    }
+                    paired.Add(node.familiar.id);
+                    paired.Add(partnerNode.familiar.id);
+                }
+                // si el partner no está en tempLookup dejamos el partnerId tal cual (referencia externa)
+            }
+
+            // 4) swap atómico en el manager
+            lock (_sync)
+            {
+                _lookup.Clear();
+                _roots.Clear();
+                foreach (var kv in tempLookup) _lookup[kv.Key] = kv.Value;
+                _roots.AddRange(tempRoots);
+            }
+
+            UpdateGraphAndDistances();
+        }
+
+        #endregion
+
+        #region Cálculos de grafo / rutas y distancias
 
         public void GetEdgesWithWeights()
         {
@@ -377,11 +474,11 @@ namespace ArbolGenealogico.Core.Managers
                 {
                     foreach (var child in n.children)
                     {
-                        if (n.familiar.excludeFromDistance || child.familiar.excludeFromDistance) continue;
+                        if (n.familiar.excludeFromDistance || child.familiar.excludeFromDistance) return;
                         // no saltar por ser pareja: tratamos cada relación explícitamente,
                         // y deduplicamos con edgesAdded para que no haya aristas repetidas
                         double w = _calcDistance.Distance(n.familiar.lon, n.familiar.lat, child.familiar.lon, child.familiar.lat);
-                        if (double.IsNaN(w) || double.IsInfinity(w)) continue;
+                        if (double.IsNaN(w) || double.IsInfinity(w)) return;
 
                         var idA = n.familiar.id;
                         var idB = child.familiar.id;
@@ -390,7 +487,7 @@ namespace ArbolGenealogico.Core.Managers
                         if (!edgesAdded.Add(key))
                         {
                             // ya añadida -> no volver a crear aristas
-                            continue;
+                            return;
                         }
 
                         var e1 = new Edge(n, child, w);
@@ -427,17 +524,6 @@ namespace ArbolGenealogico.Core.Managers
                 n.edges.Add(e1p);
                 partnerNode.edges.Add(e2p);
             }
-        }
-
-        private bool IsAncestor(Node descendant, Node ancestorCandidate)
-        {
-            var cur = descendant;
-            while (cur != null)
-            {
-                if (cur == ancestorCandidate) return true;
-                cur = cur.parent;
-            }
-            return false;
         }
 
         public Dictionary<Node, double> Dijkstra(Node? source)
@@ -537,6 +623,87 @@ namespace ArbolGenealogico.Core.Managers
             averageDistances = (count > 0) ? (sum / count) : 0.0;
         }
 
+        public void ComputeMinMaxPairs()
+        {
+            // inicializar valores
+            (Persona?, Persona?) maxPair = (null, null);
+            (Persona?, Persona?) minPair = (null, null);
+            double? max = null;
+            double? min = null;
+
+            List<Node> nodes;
+            lock (_sync)
+            {
+                nodes = _lookup.Values.ToList();
+            }
+
+            // Si no hay nodos suficientes, dejar nulls y salir
+            if (nodes == null || nodes.Count < 2)
+            {
+                personasMaxDistance = (null, null);
+                personasMinDistance = (null, null);
+                return;
+            }
+
+            foreach (var src in nodes)
+            {
+                // proteger caso distances nulo
+                if (src.distances == null) continue;
+
+                foreach (var kv in src.distances)
+                {
+                    var target = kv.Key;
+                    var d = kv.Value;
+
+                    if (double.IsInfinity(d) || double.IsNaN(d)) continue;
+                    if (src == target || d == 0) continue;
+
+                    // actualizar max
+                    if (!max.HasValue || d > max.Value)
+                    {
+                        max = d;
+                        maxPair = (src.familiar, target.familiar);
+                    }
+
+                    // actualizar min
+                    if (!min.HasValue || d < min.Value)
+                    {
+                        min = d;
+                        minPair = (src.familiar, target.familiar);
+                    }
+                }
+            }
+
+            // aplicar resultados de forma atómica (lock por seguridad)
+            lock (_sync)
+            {
+                personasMaxDistance = maxPair;
+                personasMinDistance = minPair;
+                maxDistance = max;
+                minDistance = min;
+            }
+        }
+
+        #endregion
+
+        #region Actualización del grafo (flujo principal)
+
+        private void RequestRecalc()
+        {
+            bool doRecalc = false;
+            lock (_sync)
+            {
+                if (_suspendCount > 0)
+                {
+                    _pendingRecalc = true;
+                    return;
+                }
+                // no suspendido -> ejecutar fuera del lock
+                doRecalc = true;
+            }
+            if (doRecalc) UpdateGraphAndDistances();
+        }
+
         private void UpdateGraphAndDistances()
         {
             //Console.WriteLine($"UpdateGraphAndDistances IN({DateTime.UtcNow:HH:mm:ss.fff}) - Thread {Thread.CurrentThread.ManagedThreadId}");
@@ -552,42 +719,9 @@ namespace ArbolGenealogico.Core.Managers
             graphChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public void ComputeMinMaxPairs()
-        {
-            personasMaxDistance = (null, null);
-            personasMinDistance = (null, null);
+        #endregion
 
-            double? max = null;
-            double? min = null;
-
-            List<Node> nodes;
-            lock (_sync) nodes = _lookup.Values.ToList();
-
-            foreach (var src in nodes)
-            {
-                foreach (var kv in src.distances)
-                {
-                    var target = kv.Key;
-                    var d = kv.Value;
-
-                    if (double.IsInfinity(d) || double.IsNaN(d)) continue;
-
-                    if (src == target || d == 0) continue;
-
-                    if (!max.HasValue || d > max.Value)
-                    {
-                        max = d;
-                        personasMaxDistance = (src.familiar, target.familiar);
-                    }
-
-                    if (!min.HasValue || d < min.Value)
-                    {
-                        min = d;
-                        personasMinDistance = (src.familiar, target.familiar);
-                    }
-                }
-            }
-        }
+        #region Debug / impresión
 
         // para debug y pruebas
         public void PrintEdges()
@@ -623,88 +757,21 @@ namespace ArbolGenealogico.Core.Managers
             }
         }
 
-        public IEnumerable<PersonDto> ExportToDto(PersonMapper? mapper = null)
+        #endregion
+
+        #region Helper privado
+
+        private bool IsAncestor(Node descendant, Node ancestorCandidate)
         {
-            var m = mapper ?? new PersonMapper();
-            lock (_sync)
+            var cur = descendant;
+            while (cur != null)
             {
-                // materializar para evitar problemas de concurrencia
-                return _lookup.Values.Select(n => m.ToDto(n.familiar)).ToList();
+                if (cur == ancestorCandidate) return true;
+                cur = cur.parent;
             }
+            return false;
         }
 
-        public void ImportFromDto(IEnumerable<PersonDto> dtos, PersonMapper? mapper = null)
-        {
-            if (dtos == null) throw new ArgumentNullException(nameof(dtos));
-            var list = dtos.ToList();
-            var m = mapper ?? new PersonMapper();
-
-            // 1) crear nodos temporales (sin relaciones)
-            var tempLookup = new Dictionary<Guid, Node>(list.Count);
-            foreach (var d in list)
-            {
-                var persona = m.FromDto(d);
-                var node = new Node(persona);
-                tempLookup[persona.id] = node;
-            }
-
-            // 2) enlazar padres (si el parent está presente), o marcar como root
-            var tempRoots = new List<Node>();
-            foreach (var node in tempLookup.Values)
-            {
-                var parentId = node.familiar.parentId;
-                if (!parentId.HasValue)
-                {
-                    tempRoots.Add(node);
-                    continue;
-                }
-                if (tempLookup.TryGetValue(parentId.Value, out var parentNode))
-                {
-                    parentNode.AddChild(node);
-                }
-                else
-                {
-                    // parent no presente en DTOs => considerar como root (policy elegida)
-                    tempRoots.Add(node);
-                }
-            }
-
-            // 3) enlazar parejas (hacerlo después para asegurar existencia de nodos)
-            var paired = new HashSet<Guid>();
-            foreach (var node in tempLookup.Values)
-            {
-                var pid = node.familiar.partnerId;
-                if (!pid.HasValue) continue;
-                if (paired.Contains(node.familiar.id)) continue;
-
-                if (tempLookup.TryGetValue(pid.Value, out var partnerNode))
-                {
-                    // Solo attach si no están ya emparejados correctamente
-                    if (!(node.familiar.partnerId.HasValue &&
-                        partnerNode.familiar.partnerId.HasValue &&
-                        node.familiar.partnerId.Value == partnerNode.familiar.id &&
-                        partnerNode.familiar.partnerId.Value == node.familiar.id))
-                    {
-                        node.AttachPartner(partnerNode);
-                    }
-                    paired.Add(node.familiar.id);
-                    paired.Add(partnerNode.familiar.id);
-                }
-                // si el partner no está en tempLookup dejamos el partnerId tal cual (referencia externa)
-            }
-
-            // 4) swap atómico en el manager
-            lock (_sync)
-            {
-                _lookup.Clear();
-                _roots.Clear();
-                foreach (var kv in tempLookup) _lookup[kv.Key] = kv.Value;
-                _roots.AddRange(tempRoots);
-            }
-
-            UpdateGraphAndDistances();
-        }
-
+        #endregion
     }
 }
-
