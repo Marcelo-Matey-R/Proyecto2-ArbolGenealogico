@@ -5,6 +5,7 @@ namespace ArbolGenealogico.Domain.Models
 {
     public class Node
     {
+        #region Atributos y Constructor
         public Persona familiar { get; }
 
         private Node? _parent;
@@ -19,7 +20,9 @@ namespace ArbolGenealogico.Domain.Models
         {
             this.familiar = fam ?? throw new ArgumentNullException(nameof(fam));
         }
+        #endregion
 
+        #region Sets
         public void AddChild(Node child)
         {
             if (child == null) throw new ArgumentNullException(nameof(child));
@@ -76,6 +79,9 @@ namespace ArbolGenealogico.Domain.Models
             this.familiar.partnerId = partnerNode.familiar.id;
             partnerNode.familiar.partnerId = this.familiar.id;
         }
+        #endregion
+        
+        #region Recorridos
         public int GetLevel()
         {
             int lvl = 0;
@@ -97,6 +103,8 @@ namespace ArbolGenealogico.Domain.Models
                 c.TransverseDFS(action);
             }
         }
+        #endregion
 
     }
+
 }
