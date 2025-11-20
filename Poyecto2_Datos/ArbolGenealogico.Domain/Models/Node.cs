@@ -16,7 +16,7 @@ namespace ArbolGenealogico.Domain.Models
         public Dictionary<Node, double> distances = new Dictionary<Node, double>();
         public List<Edge> edges = new List<Edge>();
 
-        public Node(Persona fam, string part = "")
+        public Node(Persona fam)
         {
             this.familiar = fam ?? throw new ArgumentNullException(nameof(fam));
         }
@@ -108,3 +108,4 @@ namespace ArbolGenealogico.Domain.Models
     }
 
 }
+
