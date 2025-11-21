@@ -312,6 +312,7 @@ namespace Poyecto2_Datos
                 var birth = DpFechaNacimiento.SelectedDate ?? DateTime.MinValue;
                 var plus = TxtPlusCode.Text?.Trim() ?? "";
                 var calc = new CalcDistance();
+                var calcAge = new Persona();
 
                 // Determinar edad
                 int age = 0;
@@ -319,10 +320,7 @@ namespace Poyecto2_Datos
                 if (!string.IsNullOrEmpty(ageText)) int.TryParse(ageText, out age);
                 else if (birth != DateTime.MinValue)
                 {
-                    var today = DateTime.Today;
-                    age = today.Year - birth.Year;
-                    if (birth.Date > today.AddYears(-age)) age--;
-                    if (age < 0) age = 0;
+                    age = calcAge.CalcAge(birth);
                 }
 
                 // Geocoding fallback: obtener coords desde pluscode si no fueron convertidas manualmente
