@@ -136,27 +136,11 @@ namespace ArbolGenealogico.Domain.Models
 
         public bool HasCoordinates() => lon.HasValue && lat.HasValue;
 
-        public bool EnsureCoordinatesFromPlusCode(CalcDistance calc)
-        {
-            if (HasCoordinates()) return true;
-            if (string.IsNullOrWhiteSpace(addresPlusCode)) return false;
-            if (calc.TryConvertPlusCode(addresPlusCode, out double Lon, out double Lat))
-            {
-                lon = Lon;
-                _lon = Lon;
-                lat = Lat;
-                _lat = Lat;
-                return true;
-            }
-            return false;
-        }
-
-
-
         public override string ToString() => $"{name} (id={ownId})";
     }
     #endregion
 
 }
+
 
 
