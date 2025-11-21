@@ -124,12 +124,13 @@ namespace ArbolGenealogico.Domain.Models
         #endregion
 
         #region Helpers
-        public int CalcAge()
+        public int CalcAge(DateTime birth)
         {
             var today = DateTime.Today;
-            int Age = today.Year - birthdate.Year;
+            int Age = today.Year - birth.Year;
 
             if (birthdate.Date > today.AddYears(-Age)) Age--;
+            if (Age < 0) Age = 0;
             return Age;
         }
 
@@ -155,3 +156,4 @@ namespace ArbolGenealogico.Domain.Models
     #endregion
 
 }
+
