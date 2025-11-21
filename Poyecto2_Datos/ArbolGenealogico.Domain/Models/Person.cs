@@ -143,7 +143,9 @@ namespace ArbolGenealogico.Domain.Models
             if (calc.TryConvertPlusCode(addresPlusCode, out double Lon, out double Lat))
             {
                 lon = Lon;
+                _lon = Lon;
                 lat = Lat;
+                _lat = Lat;
                 return true;
             }
             return false;
@@ -156,4 +158,5 @@ namespace ArbolGenealogico.Domain.Models
     #endregion
 
 }
+
 
