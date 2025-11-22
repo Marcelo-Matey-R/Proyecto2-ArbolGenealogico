@@ -17,8 +17,6 @@ namespace ArbolGenealogico.Core.Managers
 
         // token de sincronizacion
         private readonly object _sync = new object();
-        private int _suspendCount = 0;
-        private bool _pendingRecalc = false;
 
         // estructura de datos internas
         private readonly Dictionary<Guid, Node> _lookup = new Dictionary<Guid, Node>();
@@ -339,27 +337,6 @@ namespace ArbolGenealogico.Core.Managers
             // recalcular grafo fuera del lock
             UpdateGraphAndDistances();
         }
-
-        public void BeginUpdate()
-        {
-            lock (_sync) { _suspendCount++; }
-        }
-
-        public void EndUpdate()
-        {
-            bool doRecalc = false;
-            lock (_sync)
-            {
-                if (_suspendCount > 0) _suspendCount--;
-                if (_suspendCount == 0 && _pendingRecalc)
-                {
-                    _pendingRecalc = false;
-                    doRecalc = true;
-                }
-            }
-            if (doRecalc) UpdateGraphAndDistances();
-        }
-
         #endregion
 
         #region Cálculos de grafo / rutas y distancias
@@ -601,22 +578,6 @@ namespace ArbolGenealogico.Core.Managers
 
         #region Actualización del grafo (flujo principal)
 
-        private void RequestRecalc()
-        {
-            bool doRecalc = false;
-            lock (_sync)
-            {
-                if (_suspendCount > 0)
-                {
-                    _pendingRecalc = true;
-                    return;
-                }
-                // no suspendido -> ejecutar fuera del lock
-                doRecalc = true;
-            }
-            if (doRecalc) UpdateGraphAndDistances();
-        }
-
         private void UpdateGraphAndDistances()
         {
             //Console.WriteLine($"UpdateGraphAndDistances IN({DateTime.UtcNow:HH:mm:ss.fff}) - Thread {Thread.CurrentThread.ManagedThreadId}");
@@ -688,3 +649,4 @@ namespace ArbolGenealogico.Core.Managers
         #endregion
     }
 }
+
