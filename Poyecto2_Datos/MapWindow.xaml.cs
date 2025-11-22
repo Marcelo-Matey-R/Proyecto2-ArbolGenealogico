@@ -1,23 +1,15 @@
 using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
+using ArbolGenealogico.Infraestructure.Services;
 using ExCSS;
 using Mapsui;                         // MPoint, MRect, Map, ...
-using Mapsui.Features;
 using Mapsui.Layers;                  // MemoryLayer, PointFeature
 using Mapsui.Manipulations;// MapControl
-using Mapsui.Providers;               // MemoryProvider
-using Mapsui.Styles;                  // SymbolStyle, Brush, Pen
-using Mapsui.UI.Wpf;
-using NetTopologySuite.Geometries;
-using Mapsui.Nts;
-using System;
-using System.Collections.Generic;
+using Mapsui.Styles;                  // SymbolStyle, Brush, Pen, ImageStyle, Image
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
-using System.Drawing;
 using static Mapsui.Tiling.OpenStreetMap; // CreateTileLayer()
 
 namespace Poyecto2_Datos
@@ -28,6 +20,38 @@ namespace Poyecto2_Datos
         private readonly List<IFeature> _features = new();
         private MemoryLayer? _distanceLayer = null;     // capa para líneas + etiquetas
         private const string DistanceLayerName = "DistanceLines";
+
+        public MapWindow()
+        {
+            InitializeComponent();
+            _treeManager = ResolveTreeManager();
+            InitializeMap();
+            RefreshMarkers();
+            // Suscribirse a cambios si quieres que se refresque automáticamente:
+            if (_treeManager != null) _treeManager.graphChanged += (_, __) => Dispatcher.Invoke(RefreshMarkers);
+        }
+
+        private TreeManager? ResolveTreeManager()
+        {
+            if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
+            {
+                if (Application.Current.Properties["TreeManager"] is TreeManager existing) return existing;
+            }
+
+            // fallback: crear uno nuevo y guardarlo
+            try
+            {
+                var newTm = Activator.CreateInstance<TreeManager>();
+                if (Application.Current?.Properties != null)
+                    Application.Current.Properties["TreeManager"] = newTm;
+                return newTm;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         /// <summary>
         /// Carga un System.Drawing.Bitmap desde archivo de forma segura (sin dejar el archivo bloqueado)
         /// y devuelve una copia redimensionada a (width x height). El objeto devuelto debe ser dispuesto por el caller.
@@ -82,38 +106,6 @@ namespace Poyecto2_Datos
             }
         }
 
-
-        public MapWindow()
-        {
-            InitializeComponent();
-            _treeManager = ResolveTreeManager();
-            InitializeMap();
-            RefreshMarkers();
-            // Suscribirse a cambios si quieres que se refresque automáticamente:
-            if (_treeManager != null) _treeManager.graphChanged += (_, __) => Dispatcher.Invoke(RefreshMarkers);
-        }
-
-        private TreeManager? ResolveTreeManager()
-        {
-            if (Application.Current?.Properties != null && Application.Current.Properties.Contains("TreeManager"))
-            {
-                if (Application.Current.Properties["TreeManager"] is TreeManager existing) return existing;
-            }
-
-            // fallback: crear uno nuevo y guardarlo
-            try
-            {
-                var newTm = Activator.CreateInstance<TreeManager>();
-                if (Application.Current?.Properties != null)
-                    Application.Current.Properties["TreeManager"] = newTm;
-                return newTm;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         private void InitializeMap()
         {
             var map = new Map();
@@ -125,21 +117,24 @@ namespace Poyecto2_Datos
             var markerLayer = new MemoryLayer
             {
                 Name = "PersonMarkers",
-                Features = new List<IFeature>() // inicial vacío
+                Features = new List<IFeature>(),
+                Style = null // evitar estilo por defecto que dibuja puntos blancos
             };
             map.Layers.Add(markerLayer);
+
             // después de añadir markerLayer
             _distanceLayer = new MemoryLayer
             {
                 Name = DistanceLayerName,
-                Features = new List<IFeature>()
+                Features = new List<IFeature>(),
+                Style = null
             };
             map.Layers.Add(_distanceLayer);
 
             // Asignar mapa al control
             mapControl.Map = map;
 
-            // Manejar clicks: GetMapInfo espera un MPoint en DIP (usaremos ToDeviceIndependentUnits)
+            // Manejar clicks: GetMapInfo espera un MPoint en DIP (usaremos ScreenPosition overload)
             mapControl.MouseLeftButtonUp += MapControl_MouseLeftButtonUp;
         }
 
@@ -168,7 +163,8 @@ namespace Poyecto2_Datos
                     {
                         try
                         {
-                            var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
+
+                            var calc = new CalcDistance();
                             if (calc.TryConvertPlusCode(person.addresPlusCode, out double lon, out double lat))
                             {
                                 person.lon = lon;
@@ -214,58 +210,59 @@ namespace Poyecto2_Datos
 
                     var feat = new PointFeature(mp);
 
-                    // estilo (imagen si tiene la primera persona, fallback a círculo)
-                    Mapsui.Styles.SymbolStyle symbol;
+                    // estilo: si hay imagen la usamos, si no un símbolo circular
                     try
                     {
-                        // intenta usar la imagen del primer usuario del grupo
                         var candidateImage = p0.photoFileName;
                         if (!string.IsNullOrWhiteSpace(candidateImage) && File.Exists(candidateImage))
                         {
-                            // intenta asignar icono por las mismas técnicas que ya tenías (IconPath, BitmapId, etc.)
-                            // para simplicidad reutilizamos tu lógica mínima: intentar IconPath por reflexión
-                            symbol = new Mapsui.Styles.SymbolStyle { SymbolScale = 1.0, RotateWithMap = false };
-                            var iconPathProp = typeof(Mapsui.Styles.SymbolStyle).GetProperty("IconPath");
-                            if (iconPathProp != null && iconPathProp.CanWrite && iconPathProp.PropertyType == typeof(string))
+                            // Generar o recuperar PNG circular desde cache y aplicarlo como ImageStyle
+                            // tamaño por defecto para los marcadores (ajusta si quieres)
+                            int markerPx = 32;
+
+                            // Ensure circular PNG exists (cached)
+                            string circularPath = ArbolGenealogico.Infraestructure.Services.MarkerImageHelper.EnsureCircularPng(candidateImage, markerPx);
+
+                            // Crear Mapsui Image y ImageStyle
+                            var mapsuiImg = new Mapsui.Styles.Image
                             {
-                                iconPathProp.SetValue(symbol, new Uri(candidateImage).AbsoluteUri);
-                            }
-                            else
+                                Source = new Uri(Path.GetFullPath(circularPath)).AbsoluteUri
+                            };
+
+                            var imageStyle = new Mapsui.Styles.ImageStyle
                             {
-                                // fallback simple si no se puede asignar IconPath
-                                symbol = new Mapsui.Styles.SymbolStyle
-                                {
-                                    SymbolType = Mapsui.Styles.SymbolType.Ellipse,
-                                    SymbolScale = 0.8,
-                                    Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
-                                    Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
-                                };
-                            }
+                                Image = mapsuiImg,
+                                SymbolScale = 1.0, // ya está en tamaño "markerPx"
+                                RelativeOffset = new RelativeOffset(0, 0), // centro de la cara
+                                RotateWithMap = false
+                            };
+
+                            feat.Styles.Add(imageStyle);
                         }
                         else
                         {
                             // sin imagen -> símbolo circular
-                            symbol = new Mapsui.Styles.SymbolStyle
+                            var circleStyle = new Mapsui.Styles.SymbolStyle
                             {
                                 SymbolType = Mapsui.Styles.SymbolType.Ellipse,
                                 SymbolScale = 0.8,
                                 Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
                                 Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
                             };
+                            feat.Styles.Add(circleStyle);
                         }
                     }
                     catch
                     {
-                        symbol = new Mapsui.Styles.SymbolStyle
+                        var circleFallback = new Mapsui.Styles.SymbolStyle
                         {
                             SymbolType = Mapsui.Styles.SymbolType.Ellipse,
                             SymbolScale = 0.8,
                             Fill = new Mapsui.Styles.Brush(new Mapsui.Styles.Color(0, 140, 200, 220)),
                             Outline = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 200), 1)
                         };
+                        feat.Styles.Add(circleFallback);
                     }
-
-                    feat.Styles.Add(symbol);
 
                     // Atributos para hit-testing:
                     // si hay solo 1 persona en la ubicación, guardamos 'personaId' (compat con lo anterior)
@@ -301,8 +298,6 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al refrescar marcadores: " + ex.Message, "Mapa", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-
 
         private void EnsureDistanceLayer()
         {
@@ -389,7 +384,7 @@ namespace Poyecto2_Datos
                 // intentar coords del seleccionado
                 if (!selPerson.HasCoordinates() && !string.IsNullOrWhiteSpace(selPerson.addresPlusCode))
                 {
-                    var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
+                    var calc = new CalcDistance();
                     if (calc.TryConvertPlusCode(selPerson.addresPlusCode, out double lon0, out double lat0))
                     {
                         selPerson.lon = lon0; selPerson.lat = lat0;
@@ -421,7 +416,7 @@ namespace Poyecto2_Datos
                     // intentar coords del target
                     if (!tp.HasCoordinates() && !string.IsNullOrWhiteSpace(tp.addresPlusCode))
                     {
-                        var calc = new ArbolGenealogico.Infraestructure.Services.CalcDistance();
+                        var calc = new CalcDistance();
                         if (calc.TryConvertPlusCode(tp.addresPlusCode, out double lon2, out double lat2))
                         {
                             tp.lon = lon2; tp.lat = lat2;
@@ -454,42 +449,26 @@ namespace Poyecto2_Datos
                     (_distanceLayer.Features as List<IFeature>)?.Add(lineFeature);
 
                     // label en medio
-                    // --- crear etiqueta en el punto medio (reemplaza la sección anterior) ---
                     var midX = (sx + tx) / 2.0;
                     var midY = (sy + ty) / 2.0;
                     var midPoint = new Mapsui.Layers.PointFeature(new Mapsui.MPoint(midX, midY));
 
-                    // Guardamos la etiqueta como atributo (LabelColumn -> "Label")
                     midPoint["Label"] = $"{distKm:F2} km";
 
-                    // Crear LabelStyle que toma el texto desde la columna "Label"
                     var labelStyle = new Mapsui.Styles.LabelStyle
                     {
-                        // Indicar que el texto viene de la propiedad "Label" de la feature
                         LabelColumn = "Label",
-
-                        // Opciones de visibilidad / tamaño
-                        Font = new Mapsui.Styles.Font { Size = 14 }, // aumentar si lo ves pequeño
+                        Font = new Mapsui.Styles.Font { Size = 14 },
                         ForeColor = new Mapsui.Styles.Color(0, 0, 0, 255),
-
-                        // Halo → usar Pen (contorno blanco) para contraste
                         Halo = new Mapsui.Styles.Pen(new Mapsui.Styles.Color(255, 255, 255, 220), 2f),
-
-                        // Offset para que la etiqueta no se sobreponga exactamente al símbolo
                         Offset = new Mapsui.Styles.Offset(0, -12),
-
-                        // Forzar dibujo aunque existan solapamientos
                         CollisionDetection = false,
-
-                        // Asegurar que siempre sea visible (rango amplio)
                         MinVisible = double.MinValue,
                         MaxVisible = double.MaxValue
                     };
 
-                    // Añadir estilos al feature (primero label)
                     midPoint.Styles.Add(labelStyle);
 
-                    // Añadir un fondo/símbolo pequeño para la etiqueta (mejora legibilidad)
                     midPoint.Styles.Add(new Mapsui.Styles.SymbolStyle
                     {
                         SymbolType = Mapsui.Styles.SymbolType.Ellipse,
@@ -498,7 +477,6 @@ namespace Poyecto2_Datos
                         SymbolScale = 0.45
                     });
 
-                    // Finalmente agregar midPoint a la lista de features del layer
                     newFeatures.Add(midPoint);
 
                     _distanceLayer.Features = newFeatures;
@@ -610,7 +588,6 @@ namespace Poyecto2_Datos
             }
         }
 
-
         // Helper robusto que intenta leer atributos de una IFeature por varias estrategias
         private object? TryGetFeatureAttribute(IFeature feature, string key)
         {
@@ -667,6 +644,7 @@ namespace Poyecto2_Datos
 
             return null;
         }
+
         private void BtnBack_Click(object sender, RoutedEventArgs e)
         {
             // Buscar si ya existe el menú principal abierto
@@ -691,5 +669,6 @@ namespace Poyecto2_Datos
             base.OnClosed(e);
             if (_treeManager != null) _treeManager.graphChanged -= (_, __) => RefreshMarkers();
         }
+
     }
 }
