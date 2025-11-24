@@ -21,7 +21,7 @@ namespace Poyecto2_Datos
         private readonly Dictionary<string, BitmapImage> _imageCache = new Dictionary<string, BitmapImage>(StringComparer.OrdinalIgnoreCase);
 
 
-        // Nodo que estamos editando (null = modo añadir)
+        // Nodo que estamos editando
         private Node? _editingNode = null;
 
         public AddNodeWindow()
@@ -34,10 +34,10 @@ namespace Poyecto2_Datos
             // constructor
             LoadParentsCombo();
             UpdateCanvasLayout();
-            LoadPartnersCombo(); // sin exclude por defecto
+            LoadPartnersCombo();
         }
 
-        #region Resolve TreeManager and subscription
+        #region Crear una instancia de TreeManager
         private TreeManager? ResolveTreeManager()
         {
             try
@@ -83,7 +83,8 @@ namespace Poyecto2_Datos
         }
         #endregion
 
-        #region UI helpers (combo population etc.)
+        #region UI helpers
+        // Carga los nodos al combobox de los padres
         private void LoadParentsCombo()
         {
             try
@@ -110,11 +111,11 @@ namespace Poyecto2_Datos
             {
             }
         }
+        // Carga los nodos al selector de parejas
         private void LoadPartnersCombo(Guid? excludeId = null)
         {
             try
             {
-                // usar ItemsSource es más fiable que Items.Add repetido
                 var items = new List<Node>();
 
                 // placeholder "Ninguna"
@@ -136,20 +137,19 @@ namespace Poyecto2_Datos
                         });
                     }
 
-                    // añade solo nodos válidos (evitar agregar placeholder de nuevo)
+                    // añade solo nodos válidos
                     foreach (var n in allNodes)
                     {
                         // opcional: filtrar nodos con id == Guid.Empty por seguridad
                         if (n.familiar == null || n.familiar.id == Guid.Empty) continue;
 
-                        // excluir el nodo que estamos editando (si se proporcionó)
+                        // excluir el nodo que estamos editando
                         if (excludeId.HasValue && n.familiar.id == excludeId.Value) continue;
 
                         items.Add(n);
                     }
                 }
 
-                // asignar ItemsSource y DisplayMember (asegurarnos que DisplayMemberPath coincida)
                 CmbPartnerSelect.DisplayMemberPath = "familiar.name"; // muestra Persona.name
                 CmbPartnerSelect.SelectedValuePath = "familiar.id";
                 CmbPartnerSelect.ItemsSource = items;
@@ -165,7 +165,6 @@ namespace Poyecto2_Datos
                 CmbPartnerSelect.SelectedIndex = 0;
             }
         }
-
 
         private void AddNodeAndChildrenToCombo(Node node)
         {
@@ -197,7 +196,7 @@ namespace Poyecto2_Datos
                 e.CancelCommand();
             }
         }
-
+        // Valida si los inputs tienen los caracteres correctos
         private bool ValidateForm(out string error)
         {
             error = "";
@@ -278,7 +277,7 @@ namespace Poyecto2_Datos
         }
         #endregion
 
-        #region Save / Cancel (ahora soporta edición)
+        #region Save / Cancel
         private void BtnCancel_Click(object sender, RoutedEventArgs e)
         {
             // Si estamos en edición, cancelar edición sino cerrar ventana
@@ -361,7 +360,6 @@ namespace Poyecto2_Datos
                         try
                         {
                             _treeManager.SetPartner(persona.id, selectedPartnerId.Value);
-                            // marcado de exclusión recursiva para pareja y descendientes:
                         }
                         catch (Exception exPartner)
                         {
@@ -516,13 +514,13 @@ namespace Poyecto2_Datos
             TxtAge.Text = "";
         }
 
-        #region Canvas-based tree layout & drawing (ahora carga edición al clic)
+        #region Graficar los nodos del arbol y cargar los datos de una persona al editar
         private const double NodeWidth = 160;
         private const double NodeHeight = 60;
         private const double HorizontalSpacing = 20;
         private const double VerticalSpacing = 60;
 
-
+        // Actualiza y crea el arbol visualmente
         private void UpdateCanvasLayout()
         {
             try
@@ -994,7 +992,7 @@ namespace Poyecto2_Datos
 
         #endregion
 
-        #region Load node into form (edit)
+        #region Cargar nodos al formulario al editar
         private void LoadNodeIntoForm(Node node)
         {
             if (node == null) return;
@@ -1031,7 +1029,7 @@ namespace Poyecto2_Datos
                 _photoFilePath = null;
             }
 
-            // seleccionar en combo el parent actual (si existe)
+            // seleccionar en combo el parent actual
             if (node.familiar.parentId.HasValue)
             {
                 Guid pid = node.familiar.parentId.Value;
@@ -1050,7 +1048,7 @@ namespace Poyecto2_Datos
                 CmbParent.SelectedIndex = 0;
             }
             // seleccionar pareja en CmbPartnerSelect si existe
-            // RECARGAR lista de partners excluyendo el nodo que estamos editando
+            // recargar lista de partners excluyendo el nodo que estamos editando
             LoadPartnersCombo(node.familiar.id);
 
             // seleccionar pareja en CmbPartnerSelect si existe
