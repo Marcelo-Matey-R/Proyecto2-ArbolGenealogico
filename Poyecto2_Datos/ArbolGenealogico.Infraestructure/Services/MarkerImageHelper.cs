@@ -69,7 +69,7 @@ namespace ProyectoDatos22.ArbolGenealogico.Infraestructure.Services
         }
 
 
-        // Aplica la imagen circular a la feature (limpia estilos previos).
+        // Aplica la imagen circular a la feature.
         public static void ApplyCircularMarkerImageToFeature(MemoryLayer markerLayer, PointFeature feature, string sourceImagePath, int outputSizePx = 32, bool anchorCentered = true, MapControl? mapControl = null)
         {
             if (markerLayer == null) throw new ArgumentNullException(nameof(markerLayer));
