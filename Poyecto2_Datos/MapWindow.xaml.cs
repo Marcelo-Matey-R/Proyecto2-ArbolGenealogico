@@ -2,15 +2,15 @@ using ArbolGenealogico.Core.Managers;
 using ArbolGenealogico.Domain.Models;
 using ArbolGenealogico.Infraestructure.Services;
 using ExCSS;
-using Mapsui;                         // MPoint, MRect, Map, ...
-using Mapsui.Layers;                  // MemoryLayer, PointFeature
-using Mapsui.Manipulations;// MapControl
-using Mapsui.Styles;                  // SymbolStyle, Brush, Pen, ImageStyle, Image
+using Mapsui;                        
+using Mapsui.Layers;                  
+using Mapsui.Manipulations;
+using Mapsui.Styles;                  
 using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
-using static Mapsui.Tiling.OpenStreetMap; // CreateTileLayer()
+using static Mapsui.Tiling.OpenStreetMap; 
 
 namespace Poyecto2_Datos
 {
@@ -113,7 +113,7 @@ namespace Poyecto2_Datos
             // capa base OSM
             map.Layers.Add(CreateTileLayer());
 
-            // Capa de marcadores (MemoryLayer). Usaremos Features para asignar la lista.
+            // Capa de marcadores.
             var markerLayer = new MemoryLayer
             {
                 Name = "PersonMarkers",
@@ -150,7 +150,7 @@ namespace Poyecto2_Datos
                 foreach (var root in _treeManager.Roots)
                     root.TransverseDFS(n => { if (n != null && !allNodes.Contains(n)) allNodes.Add(n); });
 
-                // Mapear por coordenadas (clave = "lat_F6|lon_F6") para agrupar ubicaciones idénticas
+                // Mapear por coordenadas para agrupar ubicaciones idénticas
                 var groups = new Dictionary<string, List<Persona>>();
 
                 foreach (var node in allNodes)
@@ -263,9 +263,6 @@ namespace Poyecto2_Datos
                         };
                         feat.Styles.Add(circleFallback);
                     }
-
-                    // Atributos para hit-testing:
-                    // si hay solo 1 persona en la ubicación, guardamos 'personaId' (compat con lo anterior)
                     if (personsAtLocation.Count == 1)
                     {
                         feat["personaId"] = personsAtLocation[0].id.ToString();
@@ -273,17 +270,15 @@ namespace Poyecto2_Datos
                     }
                     else
                     {
-                        // varias personas: guardamos 'personIds' y 'personNames' como strings separados por ';'
+                       
                         var ids = personsAtLocation.Select(p => p.id.ToString()).ToArray();
                         var names = personsAtLocation.Select(p => (p.name ?? "")).ToArray();
                         feat["personIds"] = string.Join(";", ids);
                         feat["personNames"] = string.Join(";", names);
-
-                        // opcional: tooltip compacto
                         feat["name"] = $"{personsAtLocation.Count} personas aquí";
                     }
 
-                    // añadir también coordenadas como atributos (útil para el MessageBox)
+                    // añadir también coordenadas como atributos 
                     feat["lat"] = p0.lat.Value;
                     feat["lon"] = p0.lon.Value;
 
@@ -298,7 +293,7 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error al refrescar marcadores: " + ex.Message, "Mapa", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
+        // se asegura que la layer de distancias exista
         private void EnsureDistanceLayer()
         {
             if (mapControl?.Map == null) return;
@@ -318,13 +313,14 @@ namespace Poyecto2_Datos
                 }
             }
         }
+        // se encarga de poner la layer de distancias sobre las demas
         private void BringDistanceLayerToFront()
         {
             if (mapControl?.Map == null || _distanceLayer == null) return;
 
             var layers = mapControl.Map.Layers.ToList();
 
-            // Si ya existe, la movemos al final (para que se dibuje encima de las demás)
+            // Si ya existe, la movemos encima
             if (layers.Contains(_distanceLayer))
             {
                 layers.Remove(_distanceLayer);
@@ -340,6 +336,7 @@ namespace Poyecto2_Datos
             // Forzamos refresco visual
             mapControl.Refresh();
         }
+        // se encarga de dibujar las lineas en base a la persona seleccionada
         private void DrawDistanceLines(Guid selectedPersonId)
         {
             try
@@ -492,7 +489,7 @@ namespace Poyecto2_Datos
                 MessageBox.Show("Error en DrawDistanceLines: " + ex.Message, "Debug", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
+        // se encarga de detectar si se da cick en algo
         private void MapControl_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             try
@@ -542,18 +539,14 @@ namespace Poyecto2_Datos
 
                         var msg = $"Hay {idParts.Length} persona(s) en esta ubicación:\n\n" + string.Join("\n", lines);
                         MessageBox.Show(msg, "Personas en la ubicación", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                        // No llamamos DrawDistanceLines automáticamente para el grupo.
                         return;
                     }
                     else if (personaIdObj != null)
                     {
-                        // caso único (compatibilidad con tu comportamiento previo)
+                        // caso único
                         if (Guid.TryParse(personaIdObj.ToString(), out var pid))
                         {
-                            // llamar a DrawDistanceLines como antes
                             DrawDistanceLines(pid);
-
                             var node = _treeManager?.FindNodeById(pid);
                             if (node != null && node.familiar != null)
                             {
@@ -595,7 +588,6 @@ namespace Poyecto2_Datos
 
             try
             {
-                // 1) intentar indexador (feature[key]) si existe (algunas impls lo permiten)
                 try
                 {
                     // usar dynamic para intentar indexador si está presente
@@ -607,7 +599,7 @@ namespace Poyecto2_Datos
                     }
                     catch { /* no tiene indexador */ }
                 }
-                catch { /* sigh */ }
+                catch {  }
 
                 // 2) intentar propiedad 'Attributes' (podría ser IDictionary)
                 var prop = feature.GetType().GetProperty("Attributes", BindingFlags.Public | BindingFlags.Instance);
@@ -629,7 +621,7 @@ namespace Poyecto2_Datos
                     if (ok) return parameters[1];
                 }
 
-                // 4) intentar Properties o similar (fallback)
+                // 4) intentar Properties o similar
                 var prop2 = feature.GetType().GetProperty(key, BindingFlags.Public | BindingFlags.Instance);
                 if (prop2 != null)
                 {
@@ -639,7 +631,6 @@ namespace Poyecto2_Datos
             }
             catch
             {
-                // ignorar errores de reflexión y seguir
             }
 
             return null;
