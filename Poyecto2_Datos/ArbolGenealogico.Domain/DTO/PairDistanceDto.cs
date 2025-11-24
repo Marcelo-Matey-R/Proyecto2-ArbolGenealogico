@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace ArbolGenealogico.Domain.DTO
 {
+    // DTO para representar la distancia entre dos personas
     public class PairDistanceDto
     {
         public string PersonA { get; set; } = "";
