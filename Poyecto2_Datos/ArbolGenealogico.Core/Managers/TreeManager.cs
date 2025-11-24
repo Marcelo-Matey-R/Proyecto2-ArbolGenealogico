@@ -649,6 +649,7 @@ namespace ArbolGenealogico.Core.Managers
         private bool IsAncestor(Node descendant, Node ancestorCandidate)
         {
             var cur = descendant;
+            if (ancestorCandidate.GetLevel() > descendant.GetLevel()) return false;
             while (cur != null)
             {
                 if (cur == ancestorCandidate) return true;
@@ -660,3 +661,4 @@ namespace ArbolGenealogico.Core.Managers
         #endregion
     }
 }
+
