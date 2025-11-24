@@ -1,3 +1,4 @@
+
 using System.Globalization;
 using Mapsui.Projections;
 using Mapsui.Extensions;
@@ -8,6 +9,7 @@ namespace ArbolGenealogico.Infraestructure.Services
 {
     public class CalcDistance:ICalcDistance
     {
+        #region Conversion PlusCode
         //convierte plus code a Lon y Lat
         public bool TryConvertPlusCode(string plus, out double Lon, out double Lat)
         {
@@ -25,6 +27,9 @@ namespace ArbolGenealogico.Infraestructure.Services
                 return false;
             }
         }
+        #endregion
+
+        #region Calculo de distancia euclideana
         //devuelve la distancia en km, ussando la conversion de SphericalMarcator
         public double Distance(double? lon1, double? lat1, double? lon2, double? lat2)
         {
@@ -42,12 +47,14 @@ namespace ArbolGenealogico.Infraestructure.Services
 
             return (double)dis / 1000;
         }
-        
+
+        //intenta devolver la distancia en km, devuelve false si no se pudo calcular
         public bool TryDistanceIn(double? lon1, double? lat1, double? lon2, double? lat2, out double kiloMeters)
         {
             kiloMeters = Distance(lon1, lat1, lon2, lat2);
             return !(double.IsNaN(kiloMeters) || double.IsInfinity(kiloMeters));
         }
+        #endregion
     }
 
 }
