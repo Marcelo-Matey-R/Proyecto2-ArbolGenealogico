@@ -6,6 +6,91 @@ namespace ArbolGenealogico.Domain.Models
 {
     public class Persona : NotifyBase
     {
+        #region Atributos
+        private string _ownId = "";
+        private string _name;
+        private int _age;
+        private DateTime _birthdate;
+        private Guid? _parentId;
+        private Guid? _partnerId;
+        private bool _excludeFromDistance;
+        private string _urlImage = "";
+        private string _addresPlusCode = "";
+        private double? _lon;
+        private double? _lat;
+        #endregion
+
+        #region Get and Set
+        [JsonInclude]
+        public Guid id { get; set; }
+
+        public string ownId
+        {
+            get => _ownId;
+            set => SetProperty(ref _ownId, value);
+        }
+
+        public string name
+        {
+            get => _name;
+            set => SetProperty(ref _name, value);
+        }
+
+        public int age
+        {
+            get => _age;
+            set => SetProperty(ref _age, value);
+        }
+
+        public DateTime birthdate
+        {
+            get => _birthdate;
+            set => SetProperty(ref _birthdate, value);
+        }
+
+        public Guid? parentId
+        {
+            get => _parentId;
+            set => SetProperty(ref _parentId, value);
+        }
+
+        public Guid? partnerId
+        {
+            get => _partnerId;
+            set => SetProperty(ref _partnerId, value);
+        }
+
+        public bool excludeFromDistance
+        {
+            get => _excludeFromDistance;
+            set => SetProperty(ref _excludeFromDistance, value);
+        }
+
+        public string photoFileName
+        {
+            get => _urlImage;
+            set => SetProperty(ref _urlImage, value);
+        }
+
+        public string addresPlusCode
+        {
+            get => _addresPlusCode;
+            set => SetProperty(ref _addresPlusCode, value);
+        }
+
+        public double? lon
+        {
+            get => _lon;
+            set => SetProperty(ref _lon, value);
+        }
+
+        public double? lat
+        {
+            get => _lat;
+            set => SetProperty(ref _lat, value);
+        }
+        #endregion
+
         #region constructores
         public Persona()
         {
@@ -46,26 +131,39 @@ namespace ArbolGenealogico.Domain.Models
         }
         #endregion
 
-
-        #region atributos, get and set
-        [JsonInclude]
-        public Guid id { get; private set; }
-        private string _ownId = "";
-        public string ownId
+        #region Helpers
+        public int CalcAge(DateTime birth)
         {
-            get => _ownId;
-            set => SetProperty(ref _ownId, value);
+            var today = DateTime.Today;
+            int Age = today.Year - birth.Year;
+
+            if (birthdate.Date > today.AddYears(-Age)) Age--;
+            if (Age < 0) Age = 0;
+            return Age;
         }
 
-        private string _name;
-        public string name
+        public bool HasCoordinates() => lon.HasValue && lat.HasValue;
+
+        public bool EnsureCoordinatesFromPlusCode(CalcDistance calc)
         {
-            get => _name;
-            set => SetProperty(ref _name, value);
+            if (HasCoordinates()) return true;
+            if (string.IsNullOrWhiteSpace(addresPlusCode)) return false;
+            if (calc.TryConvertPlusCode(addresPlusCode, out double Lon, out double Lat))
+            {
+                lon = Lon;
+                lat = Lat;
+                return true;
+            }
+            return false;
         }
 
-        private int _age;
-        public int age
+
+
+        public override string ToString() => $"{name} (id={ownId})";
+    }
+    #endregion
+
+}        public int age
         {
             get => _age;
             set => SetProperty(ref _age, value); 
@@ -137,10 +235,12 @@ namespace ArbolGenealogico.Domain.Models
         public bool HasCoordinates() => lon.HasValue && lat.HasValue;
 
         public override string ToString() => $"{name} (id={ownId})";
+        #endregion
     }
-    #endregion
+    
 
 }
+
 
 
 
