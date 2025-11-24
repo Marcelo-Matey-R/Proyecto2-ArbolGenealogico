@@ -27,7 +27,7 @@ namespace Poyecto2_Datos
             _treeManager = ResolveTreeManager();
             InitializeMap();
             RefreshMarkers();
-            // Suscribirse a cambios si quieres que se refresque automáticamente:
+            // Suscribirse a cambios
             if (_treeManager != null) _treeManager.graphChanged += (_, __) => Dispatcher.Invoke(RefreshMarkers);
         }
 
@@ -52,10 +52,9 @@ namespace Poyecto2_Datos
             }
         }
 
-        /// <summary>
+
         /// Carga un System.Drawing.Bitmap desde archivo de forma segura (sin dejar el archivo bloqueado)
         /// y devuelve una copia redimensionada a (width x height). El objeto devuelto debe ser dispuesto por el caller.
-        /// </summary>
         private System.Drawing.Bitmap? LoadBitmapFromFileSafeAndResize(string path, int width, int height)
         {
             try
@@ -81,7 +80,6 @@ namespace Poyecto2_Datos
                         int drawW = targetW, drawH = targetH;
                         if (ratioSrc > ratioTgt)
                         {
-                            // source más ancho -> ajustar por width
                             drawW = targetW;
                             drawH = (int)Math.Round(targetW / ratioSrc);
                         }
@@ -97,7 +95,7 @@ namespace Poyecto2_Datos
                         g.DrawImage(src, offX, offY, drawW, drawH);
                     }
 
-                    return bmp; // caller debe disponer
+                    return bmp;
                 }
             }
             catch
